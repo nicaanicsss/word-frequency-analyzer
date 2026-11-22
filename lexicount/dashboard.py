@@ -377,6 +377,10 @@ def main():
     ])
 
     with tab_experiment:
+        # Initialize session state for persistent results across reruns
+        if "results" not in st.session_state:
+            st.session_state["results"] = None
+
         if controls["run"]:
             with st.spinner("Executing Sequential baseline (Single Core)..."):
                 seq_counts, seq_timings = sequential_count(controls["path"])
@@ -387,9 +391,29 @@ def main():
                     controls["path"], controls["workers"], chunk_bytes, controls["mode"]
                 )
 
+            st.session_state["results"] = {
+                "seq_counts": seq_counts,
+                "seq_timings": seq_timings,
+                "par_counts": par_counts,
+                "par_timings": par_timings,
+                "stats": stats,
+                "workers": controls["workers"],
+                "top": controls["top"]
+            }
+
+        res = st.session_state["results"]
+
+        if res:
+            seq_counts = res["seq_counts"]
+            seq_timings = res["seq_timings"]
+            par_counts = res["par_counts"]
+            par_timings = res["par_timings"]
+            stats = res["stats"]
+            p = res["workers"]
+            top_n = res["top"]
+
             t_seq = seq_timings["total_time"]
             t_par = par_timings["total"]
-            p = controls["workers"]
             s = speedup(t_seq, t_par)
             eff = efficiency(s, p)
             serial = karp_flatt(s, p)
@@ -473,6 +497,23 @@ def main():
                     """,
                     unsafe_allow_html=True
                 )
+
+            # Performance Interpretation (Rubric Requirement: Brief explanation of results)
+            from main import interpret
+            explanation_text = interpret(s, eff, p, serial)
+            st.markdown(
+                f"""
+                <div style="background-color: #0f172a; border-left: 3px solid #38bdf8; border-radius: 4px; padding: 12px 18px; margin-bottom: 22px;">
+                    <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #38bdf8; margin-bottom: 4px;">
+                        Performance Evaluation & Analysis
+                    </div>
+                    <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.6;">
+                        {explanation_text}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
             # Row 3: Visual Analytics & Tabular Breakdowns
             col_left, col_right = st.columns([1.1, 0.9])
