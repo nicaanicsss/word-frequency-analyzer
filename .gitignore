@@ -1,0 +1,17 @@
+# Generated datasets (large files, do not push to Git)
+data/
+*.txt
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Results logs and CSVs (keep charts if you want, ignore raw logs/temp)
+results/*.log
+results/benchmark_log.txt
+results/*.json
+results/*.csv
