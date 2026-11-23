@@ -698,13 +698,116 @@ def scroll_to_results(run_id: int) -> None:
     )
 
 
-def results_view(res: dict) -> None:
-    """Everything shown after a run."""
+# ---------------------------------------------------------------- compare runs
+
+COMPARE_CSS = """
+<style>
+.lc-cmp { margin-top:12px; }
+.lc-cmp .lc-tbl td:first-child { color:var(--muted); }
+.lc-cmp .lc-tbl td.chg { font-weight:600; color:var(--ink); }
+.lc-cmp .lc-tbl td.chg.dim { font-weight:400; color:var(--soft); }
+.lc-cmp-take { font-size:0.86rem; line-height:1.55; color:var(--ink); background:var(--cream);
+  border-radius:12px; padding:12px 16px; margin:4px 0 12px; }
+.lc-cmp-warn { font-size:0.78rem; line-height:1.5; color:#7a5c43; background:#f6efe4;
+  border:1px solid #e6d6bf; border-radius:10px; padding:9px 14px; margin:0 0 12px; }
+.lc-cmp-hint { font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:var(--soft); margin:12px 0 0; }
+</style>
+"""
+SAME_RANGE = 0.05  # changes smaller than 5% are reported as "about the same" (normal run-to-run noise)
+
+
+def run_summary(res: dict) -> dict:
+    """The numbers of one run that the comparison needs."""
+    p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
+    s = speedup(t_seq, t_par)
+    return {"id": res.get("run_id", 0), "file": os.path.basename(res["path"]), "p": p,
+            "chunk_mb": res["stats"]["chunk_size"] / MB, "mode": res["mode"],
+            "t_seq": t_seq, "t_par": t_par, "s": s, "e": efficiency(s, p)}
+
+
+def time_change(old: float, new: float) -> tuple[str, bool]:
+    """'41% faster' / '12% slower' / 'about the same', and whether it is a real change."""
+    if old <= 0:
+        return "-", False
+    change = (old - new) / old
+    if abs(change) < SAME_RANGE:
+        return "about the same", False
+    return f"{abs(change):.0%} {'faster' if change > 0 else 'slower'}", True
+
+
+def compare_card(prev: dict, cur: dict) -> str:
+    """Previous run vs this run, with the change in words and one plain takeaway."""
+    a, b = run_summary(prev), run_summary(cur)
+
+    # Settings that should match for the times to be comparable (workers are what you compare).
+    same_chunk = round(a["chunk_mb"], 3) == round(b["chunk_mb"], 3)
+    mismatches = []
+    if a["file"] != b["file"]:
+        mismatches.append("dataset")
+    if not same_chunk:
+        mismatches.append("chunk size")
+    if a["mode"] != b["mode"]:
+        mismatches.append("IPC mode")
+    warning = ""
+    if mismatches:
+        warning = (f"<div class='lc-cmp-warn'>These two runs used a different {' and '.join(mismatches)}, "
+                   f"so their times are not directly comparable. For a fair comparison change only the "
+                   f"number of workers.</div>")
+
+    par_text, par_real = time_change(a["t_par"], b["t_par"])
+    seq_text, seq_real = time_change(a["t_seq"], b["t_seq"])
+    s_diff, e_diff = b["s"] - a["s"], 100 * (b["e"] - a["e"])
+    rows = [
+        ("Dataset", html.escape(a["file"]), html.escape(b["file"]), "" if a["file"] == b["file"] else "different", True),
+        ("Workers", a["p"], b["p"], f"{b['p'] - a['p']:+d}" if a["p"] != b["p"] else "same", a["p"] != b["p"]),
+        ("Chunk size", f"{a['chunk_mb']:.2f} MB", f"{b['chunk_mb']:.2f} MB",
+         "same" if same_chunk else "different", not same_chunk),
+        ("Sequential time", f"{a['t_seq']:.3f} s", f"{b['t_seq']:.3f} s", seq_text, seq_real),
+        ("Parallel time", f"{a['t_par']:.3f} s", f"{b['t_par']:.3f} s", par_text, par_real),
+        ("Speedup", f"{a['s']:.2f}×", f"{b['s']:.2f}×", f"{s_diff:+.2f}×", abs(s_diff) >= 0.05 * max(a["s"], 0.01)),
+        ("Efficiency", f"{a['e']:.0%}", f"{b['e']:.0%}", f"{e_diff:+.0f} points", abs(e_diff) >= 5),
+    ]
+    body = "".join(f"<tr><td>{name}</td><td class='r'>{old}</td><td class='r'>{new}</td>"
+                   f"<td class='r chg{'' if real else ' dim'}'>{change}</td></tr>"
+                   for name, old, new, change, real in rows)
+
+    if a["p"] != b["p"] and not mismatches:
+        verb = ("finished in about the same time" if not par_real
+                else f"made the parallel run {par_text}")
+        take = (f"Going from <b>{a['p']}</b> to <b>{b['p']} workers</b> {verb} "
+                f"({a['t_par']:.2f} s → {b['t_par']:.2f} s), and the speedup went from "
+                f"{a['s']:.2f}× to {b['s']:.2f}×.")
+        if b["p"] > a["p"] and e_diff <= -5:
+            take += " Each worker was used a little less efficiently, which is normal when you add workers."
+    elif not mismatches:
+        take = ("Same settings both times, so the difference only shows normal run-to-run variation "
+                f"(parallel time {par_text}).")
+    else:
+        take = (f"Parallel time went from {a['t_par']:.2f} s to {b['t_par']:.2f} s ({par_text}), "
+                f"but the settings differ, so read this with care.")
+
+    return (f"{COMPARE_CSS}<div class='lc-card lc-cmp'><div class='lc-cardhead'>"
+            f"<span class='lc-h3'>Compare with previous run</span>"
+            f"<span class='lc-mini'>run {a['id']} vs run {b['id']}</span></div>"
+            f"<div class='lc-cmp-take'>{take}</div>{warning}"
+            f"<table class='lc-tbl'><tr><th></th><th class='r'>Previous run</th><th class='r'>This run</th>"
+            f"<th class='r'>Change</th></tr>{body}</table>"
+            f"<div class='lc-foot2'>Each column is a single run, so timings can vary by a few percent "
+            f"between runs; changes under {SAME_RANGE:.0%} are shown as \"about the same\".</div></div>")
+
+
+def results_view(res: dict, previous: dict | None = None) -> None:
+    """Everything shown after a run, plus a comparison when there is an earlier run."""
     actual_mb = res["stats"]["chunk_size"] / MB
     show(f"<div class='lc-run' data-run='{res.get('run_id', 0)}'>Last run · "
          f"{html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
          f" · {actual_mb:.2f} MB chunks · {res['mode']} IPC</div>")
     show(kpi_row(res) + correctness_block(res) + meaning_block(res))
+    if previous:
+        show(compare_card(previous, res))
+    else:
+        show("<div class='lc-cmp-hint'>Tip: change the number of workers and run again "
+             "to compare the two runs side by side.</div>")
     show(f"<div class='lc-grid2'>{word_bars(res)}{time_card(res)}</div>")
     show(timeline_card(res))
 
@@ -745,13 +848,15 @@ def analyzer_page() -> None:
     if settings["run"]:
         run_id = st.session_state.get("run_count", 0) + 1
         st.session_state["run_count"] = run_id
+        # Keep the last result as "previous" so the two runs can be compared.
+        st.session_state["previous_results"] = st.session_state.get("results")
         st.session_state["results"] = {**run_analysis(settings), "run_id": run_id}
         st.session_state["scroll_to_run"] = run_id  # scroll once, right after this run
 
     res = st.session_state.get("results")
     if res:
         res["query"] = settings["query"]  # filter can change without re-running
-        results_view(res)
+        results_view(res, st.session_state.get("previous_results"))
         # Only the rerun that follows "Run analysis" scrolls; slider or filter changes don't.
         if st.session_state.pop("scroll_to_run", None) == res.get("run_id"):
             scroll_to_results(res["run_id"])
