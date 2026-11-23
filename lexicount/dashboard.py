@@ -7,6 +7,7 @@ crisp typography, and clear responsive visual hierarchy.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import platform
 
@@ -21,11 +22,13 @@ if __name__ != "__mp_main__":
     import matplotlib.pyplot as plt
     import streamlit as st
 
+from chunker import DEFAULT_CHUNK_SIZE_MB, compute_chunks  # noqa: E402
 from dataset_generator import DATA_DIR, generate_dataset  # noqa: E402
 from main import find_differences  # noqa: E402
 from metrics import amdahl_speedup, efficiency, karp_flatt, speedup  # noqa: E402
-from parallel import MODES, parallel_count  # noqa: E402
+from parallel import MODES, parallel_count, read_range  # noqa: E402
 from sequential import sequential_count  # noqa: E402
+from tokenizer import WORD_PATTERN  # noqa: E402
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results")
@@ -226,6 +229,62 @@ def list_datasets() -> list[str]:
     return sorted(files, key=os.path.getsize)
 
 
+WORD_COUNTS_FILE = os.path.join(DATA_DIR, "word_counts.json")
+
+
+def count_total_words(path: str) -> int:
+    """Total number of words in a file, using the same word rule as the tokenizer.
+
+    Reads word-safe chunks one at a time, so even a 500 MB file is never fully in
+    memory. subn() only counts the matches; no list of words is built.
+    """
+    total = 0
+    for start, end in compute_chunks(path, DEFAULT_CHUNK_SIZE_MB * MB):
+        total += WORD_PATTERN.subn(b"", read_range(path, start, end))[1]
+    return total
+
+
+def dataset_word_counts(paths: list[str]) -> dict[str, int]:
+    """Word count of every dataset, saved in data/word_counts.json.
+
+    Counting the 500 MB file takes about 13 s, so each file is counted once and
+    only recounted when its size or modification time changes.
+    """
+    try:
+        with open(WORD_COUNTS_FILE, encoding="utf-8") as file:
+            saved = json.load(file)
+    except (OSError, ValueError):
+        saved = {}
+
+    counts: dict[str, int] = {}
+    changed = False
+    for path in paths:
+        name = os.path.basename(path)
+        info = os.stat(path)
+        entry = saved.get(name)
+        if not entry or entry["size"] != info.st_size or entry["mtime"] != info.st_mtime:
+            with st.spinner(f"Counting words in {name} (only needed once)..."):
+                entry = {"size": info.st_size, "mtime": info.st_mtime,
+                         "words": count_total_words(path)}
+            saved[name] = entry
+            changed = True
+        counts[path] = entry["words"]
+
+    if changed:
+        with open(WORD_COUNTS_FILE, "w", encoding="utf-8") as file:
+            json.dump(saved, file, indent=2)
+    return counts
+
+
+def short_count(number: int) -> str:
+    """1234 -> '1.2K', 21893137 -> '21.9M' (keeps dropdown labels short)."""
+    if number >= 1_000_000:
+        return f"{number / 1_000_000:.1f}M"
+    if number >= 1_000:
+        return f"{number / 1_000:.1f}K"
+    return str(number)
+
+
 def render_header():
     st.markdown(
         f"""
@@ -251,6 +310,7 @@ def render_control_panel():
     if not datasets:
         st.error("No test datasets available in data/ directory. Please generate one.")
         return None
+    word_counts = dataset_word_counts(datasets)
 
     default_idx = 0
     for idx, path in enumerate(datasets):
@@ -265,8 +325,10 @@ def render_control_panel():
             "Source Dataset",
             datasets,
             index=default_idx,
-            format_func=lambda p: f"{os.path.basename(p)} ({os.path.getsize(p) / MB:.1f} MB)"
+            format_func=lambda p: (f"{os.path.basename(p)} ({os.path.getsize(p) / MB:.1f} MB, "
+                                   f"{short_count(word_counts[p])} words)")
         )
+        st.caption(f"Contains {word_counts[selected_file]:,} words")
 
     with col2:
         workers = st.slider(
