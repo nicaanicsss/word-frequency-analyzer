@@ -370,9 +370,8 @@ def main():
     if not controls:
         return
 
-    tab_experiment, tab_benchmarks, tab_architecture = st.tabs([
+    tab_experiment, tab_architecture = st.tabs([
         "Live Experiment",
-        "Benchmark & Scaling Analysis",
         "Theoretical PDC Architecture"
     ])
 
@@ -550,18 +549,6 @@ def main():
                 st.table(worker_table)
         else:
             st.info("Adjust the parameters in the top console and click 'Run Analysis' to execute the comparison.")
-
-    with tab_benchmarks:
-        st.markdown("<p style='font-size:0.95rem; font-weight:600; color:#f8fafc; margin-bottom:4px;'>Experimental Evaluation</p>", unsafe_allow_html=True)
-        st.caption("Pre-computed benchmark trials evaluating strong scaling, data scaling, agglomeration, and IPC overhead.")
-
-        for title, fname in CHART_FILES:
-            fpath = os.path.join(RESULTS_DIR, fname)
-            if os.path.isfile(fpath):
-                st.markdown(f"<p style='font-size:0.85rem; font-weight:600; color:#cbd5e1; margin-top:18px;'>{title}</p>", unsafe_allow_html=True)
-                st.image(fpath, use_container_width=True)
-            else:
-                st.info(f"Chart '{fname}' not available yet. Run 'python benchmark.py && python visualize.py' to produce it.")
 
     with tab_architecture:
         st.markdown("<p style='font-size:0.95rem; font-weight:600; color:#f8fafc; margin-bottom:12px;'>PDC Methodology & Implementation</p>", unsafe_allow_html=True)
