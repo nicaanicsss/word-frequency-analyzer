@@ -300,42 +300,31 @@ def render_control_panel():
         run_clicked = st.button("Run Analysis")
 
     # Row 2: Search Query on Left, File Management (Upload / Generate) on Right (50/50 split)
-    col_search, col_manage = st.columns([1, 1])
+    col_search, col_manage = st.columns([1, 1], gap="medium")
 
     with col_search:
+        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
         search_query = st.text_input(
             "Search or Filter Specific Words",
-            placeholder="Type specific words to inspect (e.g. 'the, love, algorithm, data') or leave empty for all words",
+            placeholder="Type words (e.g. 'algorithm, data, love') or leave empty for all",
             help="Filter the analysis to specific target keywords."
         )
 
     with col_manage:
-        with st.expander("Upload Custom Book (.txt) or Generate Dataset"):
-            tab_upload, tab_synth = st.tabs(["Upload Book / File", "Generate Dataset"])
-            
-            with tab_upload:
-                uploaded_file = st.file_uploader("Upload any .txt file or book", type=["txt"])
-                if uploaded_file is not None:
-                    save_path = os.path.join(DATA_DIR, uploaded_file.name)
-                    if not os.path.isfile(save_path):
-                        with open(save_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        st.success(f"Uploaded and saved: {uploaded_file.name} ({len(uploaded_file.getbuffer()) / MB:.2f} MB)")
-                        st.rerun()
-                    else:
-                        st.info(f"File already available in dataset list: {uploaded_file.name}")
-
-            with tab_synth:
-                gcol1, gcol2 = st.columns([2, 1])
-                with gcol1:
-                    gen_size = st.number_input("Target Size (MB)", min_value=1, max_value=1000, value=25, step=5)
-                with gcol2:
-                    st.markdown("<div style='height: 27px;'></div>", unsafe_allow_html=True)
-                    if st.button("Synthesize"):
-                        with st.spinner("Generating Zipf distribution text..."):
-                            generate_dataset(gen_size)
-                        st.success(f"Generated dataset_{gen_size}MB.txt")
-                        st.rerun()
+        st.markdown("<p style='font-size:0.875rem; font-weight:400; color:#cbd5e1; margin-bottom:8px;'>Add Custom Dataset (.txt)</p>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader(
+            "Upload Book (.txt)",
+            type=["txt"],
+            label_visibility="collapsed",
+            help="Upload any text file or book to analyze."
+        )
+        if uploaded_file is not None:
+            save_path = os.path.join(DATA_DIR, uploaded_file.name)
+            if not os.path.isfile(save_path):
+                with open(save_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                st.success(f"Added {uploaded_file.name}")
+                st.rerun()
 
     return {
         "path": selected_file,
