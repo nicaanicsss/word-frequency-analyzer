@@ -258,7 +258,7 @@ def render_control_panel():
             default_idx = idx
             break
 
-    col1, col2, col3, col4, col5, col6 = st.columns([2.6, 1.8, 1.8, 2.0, 1.5, 1.8])
+    col1, col2, col3, col4, col5, col6 = st.columns([2.4, 1.6, 1.6, 1.8, 1.2, 1.4])
 
     with col1:
         selected_file = st.selectbox(
@@ -299,6 +299,13 @@ def render_control_panel():
     with col6:
         run_clicked = st.button("Run Analysis")
 
+    # Word Search / Filter Input
+    search_query = st.text_input(
+        "Search or Filter Specific Words",
+        placeholder="Type specific words to inspect (e.g. 'the, love, algorithm, data') or leave empty for all words",
+        help="Filter the analysis to specific target keywords."
+    )
+
     # Optional generator expander tucked neatly inside the top console
     with st.expander("Generate New Offline Dataset"):
         gcol1, gcol2, _ = st.columns([2, 1, 5])
@@ -317,6 +324,7 @@ def render_control_panel():
         "chunk_mb": chunk_mb,
         "mode": mode,
         "top": top_n,
+        "search_query": search_query.strip(),
         "run": run_clicked
     }
 
@@ -518,7 +526,15 @@ def main():
             col_left, col_right = st.columns([1.1, 0.9])
 
             with col_left:
-                st.pyplot(plot_top_words(par_counts, controls["top"]))
+                search_q = controls.get("search_query", "")
+                if search_q:
+                    # Filter dictionary to user-specified words
+                    target_words = [w.strip().lower() for w in search_q.replace(",", " ").split() if w.strip()]
+                    filtered_counts = {w: par_counts.get(w, 0) for w in target_words}
+                    st.markdown(f"<p style='font-size:0.85rem; font-weight:600; color:#38bdf8; margin-bottom:6px;'>Specific Word Counts ({len(target_words)} selected)</p>", unsafe_allow_html=True)
+                    st.pyplot(plot_top_words(filtered_counts, len(filtered_counts)))
+                else:
+                    st.pyplot(plot_top_words(par_counts, controls["top"]))
 
             with col_right:
                 st.markdown("<p style='font-size:0.85rem; font-weight:600; color:#f8fafc; margin-bottom:6px;'>Stage Breakdown</p>", unsafe_allow_html=True)
