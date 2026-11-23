@@ -551,6 +551,9 @@ TIMELINE_CSS = """
 .lc-tl-compact .lc-tl-track { height:22px; border-radius:7px; }
 .lc-tl-compact .lc-tl-chunk { top:3px; bottom:3px; font-size:0.55rem; }
 .lc-tl-compact .lc-tl-num { font-size:0.7rem; }
+.lc-tl-row.lc-tl-total > div { border-bottom:none; border-top:1px solid #cfc6b9; padding-top:10px; padding-bottom:2px; }
+.lc-tl-row.lc-tl-total .lc-tl-num, .lc-tl-row.lc-tl-total b { font-weight:700; }
+.lc-tl-note { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--soft); }
 @keyframes lc-tl-grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
 @keyframes lc-tl-bob { from { transform:translateY(0); } to { transform:translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .lc-tl-chunk, .lc-fig.work { animation:none; } }
@@ -648,6 +651,17 @@ def timeline_card(res: dict) -> str:
                     for share in (0, 0.25, 0.5, 0.75, 1))
     rows += (f"<div class='lc-tl-row lc-tl-axis'><div></div><div><div class='lc-tl-ticks'>{ticks}</div></div>"
              f"<div></div><div></div><div class='lc-tl-wide'></div><div class='lc-tl-wide'></div></div>")
+
+    # Totals: all chunks and all data should add up to the whole file.
+    total_chunks = sum(entry["chunks"] for entry in stats["per_worker"].values())
+    combined_busy = sum(entry["busy"] for entry in stats["per_worker"].values())
+    rows += (f"<div class='lc-tl-row lc-tl-total'><div class='lc-tl-who'><b>Total</b></div>"
+             f"<div class='lc-tl-note'>{plural(stats['workers'], 'worker')} together</div>"
+             f"<div class='lc-tl-num r'>{total_chunks}</div>"
+             f"<div class='lc-tl-num r'>{file_mb:.1f} MB</div>"
+             f"<div class='lc-tl-num r lc-tl-wide' title='All workers added together. It is more than the "
+             f"run time because the workers were counting at the same time.'>{combined_busy:.2f} s</div>"
+             f"<div class='lc-tl-num r lc-tl-wide'>100%</div></div>")
 
     chunk_mb = stats["chunk_size"] / MB
     summary = (f"The <b>{file_mb:.0f} MB</b> file was cut into <b>{plural(stats['num_chunks'], 'chunk')}</b> "
