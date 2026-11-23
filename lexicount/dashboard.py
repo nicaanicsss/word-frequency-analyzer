@@ -77,11 +77,12 @@ CSS = """
 .lc-h1 em { color:var(--brown); font-style:italic; }
 .lc-lead { font-size:0.88rem; color:var(--muted); margin-bottom:22px; }
 .lc-label { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.18em;
-  text-transform:uppercase; color:var(--muted); margin:2px 0 4px 0; }
+  text-transform:uppercase; color:var(--muted); line-height:1.4; margin:0; padding:0 0 12px; }
 .lc-h3 { font-family:'Playfair Display',serif; font-size:1.35rem; font-weight:400; color:var(--ink); }
 
 /* ---------- controls card ---------- */
 .st-key-controls { background:#fff; border-radius:22px; padding:22px 24px 20px 24px; }
+.st-key-controls [data-testid="stAlert"] { margin:14px 0 18px; }
 div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="base-input"] {
   background:var(--sand) !important; border:none !important; border-radius:10px !important; }
 div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.82rem !important; }
@@ -304,6 +305,13 @@ def controls() -> dict | None:
             label("Top N")
             top = st.number_input("top", min_value=5, max_value=25, value=10, label_visibility="collapsed")
 
+        effective_mb = effective_chunk_size(path, int(workers), float(chunk_mb)) / MB
+        if effective_mb < float(chunk_mb):
+            st.warning(
+                f"For this dataset and {workers} workers, the selected {chunk_mb:g} MB "
+                f"chunk size will be reduced to about {effective_mb:.2f} MB per chunk."
+            )
+
         f1, f2 = st.columns(2, gap="medium")
         with f1:
             label("Filter words")
@@ -325,6 +333,13 @@ def controls() -> dict | None:
 
 # ---------------------------------------------------------------- result blocks
 
+def effective_chunk_size(path: str, workers: int, chunk_mb: float) -> int:
+    """Size passed to the parallel counter after adapting to small files."""
+    requested = int(chunk_mb * MB)
+    file_size = os.path.getsize(path)
+    return min(requested, max(32 * 1024, file_size // max(workers, 1))) if file_size > 0 else requested
+
+
 def run_analysis(settings: dict) -> dict:
     """Run sequential + parallel and keep everything for display.
 
@@ -337,15 +352,8 @@ def run_analysis(settings: dict) -> dict:
     path = settings["path"]
     workers = settings["workers"]
     mode = settings["mode"]
-    requested_chunk = int(settings["chunk_mb"] * MB)
-
     # Ensure small files (e.g. 0.6 MB books) split cleanly across all workers.
-    file_size = os.path.getsize(path)
-    eff_chunk = (
-        min(requested_chunk, max(32 * 1024, file_size // max(workers, 1)))
-        if file_size > 0
-        else requested_chunk
-    )
+    eff_chunk = effective_chunk_size(path, workers, settings["chunk_mb"])
 
     with st.spinner("Running sequential baseline..."):
         seq_counts, seq_timings = sequential_count(path)
@@ -448,8 +456,9 @@ def load_card(res: dict) -> str:
 
 def results_view(res: dict) -> None:
     """Everything shown after a run."""
+    actual_mb = res["stats"]["chunk_size"] / MB
     show(f"<div class='lc-run'>Last run · {html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
-         f" · {res['chunk_mb']:g} MB chunks · {res['mode']} IPC</div>")
+         f" · {actual_mb:.2f} MB chunks · {res['mode']} IPC</div>")
     show(kpi_row(res) + correctness_block(res) + meaning_block(res))
     show(f"<div class='lc-grid2'>{word_bars(res)}<div class='lc-stack'>{time_card(res)}{load_card(res)}</div></div>")
 
