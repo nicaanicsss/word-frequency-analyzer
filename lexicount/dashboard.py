@@ -3,15 +3,23 @@ No sidebar: clean top control panel, balanced grid proportions, zero emojis,
 crisp typography, and clear responsive visual hierarchy.
 """
 
+# Lets the "-> plt.Figure" annotation below work when plt is not imported.
+from __future__ import annotations
+
 import glob
 import os
 import platform
 
-import matplotlib
+# On macOS and Windows ("spawn" start method) every worker process re-imports
+# this script under the name "__mp_main__" before it runs its task. Workers only
+# need parallel.map_chunk, so they skip Streamlit and matplotlib here. Loading
+# both took about 0.5 s per worker and was counted in the parallel time.
+if __name__ != "__mp_main__":
+    import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import streamlit as st  # noqa: E402
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import streamlit as st
 
 from dataset_generator import DATA_DIR, generate_dataset  # noqa: E402
 from main import find_differences  # noqa: E402
@@ -32,12 +40,6 @@ CHART_FILES = [
     ("Communication Overhead: Offset vs Send", "offset_vs_send.png"),
     ("Parallel Time Breakdown", "time_breakdown_stacked.png"),
 ]
-
-st.set_page_config(
-    page_title="LexiCount Analyzer",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 CUSTOM_CSS = """
 <style>
@@ -218,8 +220,6 @@ td {
 </style>
 """
 
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
 
 def list_datasets() -> list[str]:
     files = glob.glob(os.path.join(DATA_DIR, "*.txt"))
@@ -381,6 +381,14 @@ def plot_top_words(counts: dict[str, int], top: int) -> plt.Figure:
 
 
 def main():
+    # Page setup lives here, not at import time, so worker processes skip it.
+    st.set_page_config(
+        page_title="LexiCount Analyzer",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
     render_header()
     controls = render_control_panel()
     if not controls:
