@@ -45,7 +45,7 @@ python main.py --file data/dataset_100MB.txt --workers 4
 python main.py --generate 100                       # generate + analyze in one step
 python main.py --file data/dataset_100MB.txt --chunk-size 1 --mode send --top 20
 python -m unittest discover -s tests -v             # correctness tests
-python -m streamlit run dashboard.py                # optional live-demo dashboard
+python -m streamlit run dashboard.py                # landing page + live-demo dashboard
 ```
 
 | Option | Meaning | Default |
@@ -73,7 +73,8 @@ generator will replicate it instead of generating synthetic Zipf-distributed tex
 | `benchmark.py` | Experiments A-D, saves `results/benchmark_results.csv/.json` |
 | `visualize.py` | Charts (PNG, 300 dpi) from the benchmark results |
 | `dataset_generator.py` | Offline dataset creation |
-| `dashboard.py` | Optional Streamlit UI |
+| `dashboard.py` | Streamlit entry point; the Analyzer view keeps the original dashboard |
+| `landing_page.py` | Landing page and temporary How it works / About views |
 | `tests/test_correctness.py` | `unittest` suite |
 
 ## How PDC concepts map to the code

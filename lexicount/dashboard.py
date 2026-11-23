@@ -449,6 +449,13 @@ def main():
         layout="wide",
         initial_sidebar_state="collapsed"
     )
+    view = st.query_params.get("view", "home")
+    if view != "analyzer":
+        from landing_page import render_landing
+
+        render_landing(view if view in {"home", "how-it-works", "about"} else "home")
+        return
+
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
     render_header()
