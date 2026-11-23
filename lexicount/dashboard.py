@@ -19,7 +19,7 @@ if __name__ != "__mp_main__":
     import streamlit.components.v1 as components
 
 from dataset_generator import DATA_DIR
-from main import find_differences, interpret
+from main import find_differences
 from metrics import efficiency, karp_flatt, speedup
 from parallel import parallel_count
 from sequential import sequential_count
@@ -261,7 +261,7 @@ def label(text: str) -> None:
 def footer() -> None:
     """Bottom strip with course name and formulas."""
     show("""<div class='lc-foot'><div><b>lexicount</b> · Parallel and Distributed Computing</div>
-    <div class='m'>S = T_seq / T_par · E = S / p</div></div>""")
+    <div class='m'>Speedup = sequential time ÷ parallel time · Efficiency = speedup ÷ workers</div></div>""")
 
 
 def controls() -> dict | None:
@@ -369,23 +369,48 @@ def run_analysis(settings: dict) -> dict:
             "timings": par_timings, "stats": stats, **settings}
 
 
-def kpi(title: str, value: str, sub: str, dark: bool = False) -> str:
-    """One metric card."""
-    return (f"<div class='lc-kpi {'dark' if dark else ''}'><div class='k'>{title}</div>"
+def kpi(title: str, value: str, sub: str, formal: str, dark: bool = False) -> str:
+    """One metric card: plain-language label, with the formal term and formula on hover."""
+    return (f"<div class='lc-kpi {'dark' if dark else ''}' title='{formal}'><div class='k'>{title}</div>"
             f"<div class='v'>{value}</div><div class='s'>{sub}</div></div>")
 
 
+def serial_part(s: float, p: int) -> float | None:
+    """Karp-Flatt serial fraction, or None when it has no meaning for this run.
+
+    It needs at least 2 workers and a real speedup; outside 0..1 (a slowdown, or
+    efficiency above 100%) the number is noise, so the dashboard shows n/a.
+    """
+    value = karp_flatt(s, p)
+    return value if value is not None and 0 <= value <= 1 else None
+
+
+def serial_part_note(s: float, p: int) -> str:
+    """Short reason under the Serial part card when it shows n/a."""
+    if p < 2:
+        return "needs 2 or more workers"
+    if s < 1:
+        return "no speedup to measure"
+    return "too small to measure in this run"
+
+
 def kpi_row(res: dict) -> str:
-    """Five metric cards; speedup is the dark highlighted one."""
+    """Five metric cards in plain words; speedup is the dark highlighted one."""
     p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
     s = speedup(t_seq, t_par)
-    e = karp_flatt(s, p)
+    serial = serial_part(s, p)
     return "<div class='lc-kpis'>" + "".join([
-        kpi("Sequential · T_seq", f"{t_seq:.3f}s", "1 core reference"),
-        kpi("Parallel · T_par", f"{t_par:.3f}s", f"{p} active workers"),
-        kpi("Speedup · S", f"{s:.2f}×", "T_seq / T_par", dark=True),
-        kpi("Efficiency · E", f"{efficiency(s, p):.1%}", "S / p"),
-        kpi("Karp-Flatt · e", "n/a" if e is None else f"{e:.3f}", "estimated serial fraction"),
+        kpi("Sequential time", f"{t_seq:.3f} s", "1 worker, the normal way",
+            "Sequential execution time (T_seq)"),
+        kpi("Parallel time", f"{t_par:.3f} s", f"{p} workers, file split up",
+            "Parallel execution time (T_par), including starting and stopping the workers"),
+        kpi("Speedup", f"{s:.2f}×", "faster than sequential" if s >= 1 else "slower than sequential",
+            "Speedup S = T_seq / T_par", dark=True),
+        kpi("Efficiency", f"{efficiency(s, p):.0%}", f"of the ideal {p}× speedup",
+            "Parallel efficiency E = S / p"),
+        kpi("Serial part", "n/a" if serial is None else f"{serial:.1%}",
+            serial_part_note(s, p) if serial is None else "of the work that can't be split",
+            "Estimated serial fraction (Karp-Flatt metric e)"),
     ]) + "</div>"
 
 
@@ -401,10 +426,32 @@ def correctness_block(res: dict) -> str:
 
 
 def meaning_block(res: dict) -> str:
-    """Plain-English interpretation of the numbers."""
-    p = res["workers"]
-    s = speedup(res["t_seq"], res["timings"]["total"])
-    text = interpret(s, efficiency(s, p), p, karp_flatt(s, p))
+    """Plain-language explanation of the numbers (no formulas or metric names)."""
+    p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
+    s = speedup(t_seq, t_par)
+    e = efficiency(s, p)
+    serial = serial_part(s, p)
+    if p == 1:
+        text = (f"With 1 worker the parallel version does the same job as the sequential one "
+                f"({t_par:.2f} s vs {t_seq:.2f} s), plus the cost of starting a worker process. "
+                f"Pick 2 or more workers to see the file being split up.")
+    elif s < 1:
+        text = (f"With {p} workers it was slower: {t_par:.2f} s instead of {t_seq:.2f} s. "
+                f"For a file this small, starting the worker processes takes longer than the counting "
+                f"itself, so splitting the work does not pay off. Try a bigger file.")
+    else:
+        text = (f"Splitting the file across {p} workers finished the count in {t_par:.2f} s instead of "
+                f"{t_seq:.2f} s, so it was {s:.2f}× faster. ")
+        if e <= 1:
+            text += (f"In a perfect world {p} workers would be {p}× faster; this run reached {e:.0%} of that. "
+                     f"The rest is lost to starting and stopping the workers and to the steps only the main "
+                     f"process does: cutting the file into chunks, adding up the counts and sorting them. ")
+        else:
+            text += ("That is slightly better than the ideal, which usually just means the timing "
+                     "varied a little between the two runs. ")
+        if serial is not None and serial > 0:
+            text += (f"About {serial:.0%} of the work still behaves as if it can't be split, so even with "
+                     f"unlimited workers this would top out around {1 / serial:.0f}× faster.")
     return f"<div class='lc-note'><div class='lc-eyebrow'>What this means</div><p>{text}</p></div>"
 
 
@@ -459,8 +506,11 @@ COMPACT_ABOVE = 8     # more workers than this -> smaller rows so the card stays
 # the name column grows with its text instead of running under the bars.
 TIMELINE_CSS = """
 <style>
+.lc-tl-summary { font-size:0.84rem; line-height:1.55; color:var(--ink); background:var(--cream);
+  border-radius:12px; padding:12px 16px; margin:0 0 14px; }
+.lc-tl-summary b { font-weight:600; }
 .lc-tl-top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-.lc-tl-grid { display:grid; grid-template-columns:max-content minmax(220px,1fr) repeat(3,max-content);
+.lc-tl-grid { display:grid; grid-template-columns:max-content minmax(220px,1fr) repeat(4,max-content);
   align-items:center; }
 .lc-tl-row { display:contents; }
 /* no column-gap: spacing is padding inside the cells, so each row's divider line is unbroken */
@@ -505,7 +555,7 @@ TIMELINE_CSS = """
 @keyframes lc-tl-bob { from { transform:translateY(0); } to { transform:translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .lc-tl-chunk, .lc-fig.work { animation:none; } }
 @media (max-width: 760px) {
-  .lc-tl-grid { grid-template-columns:max-content minmax(120px,1fr) max-content; }
+  .lc-tl-grid { grid-template-columns:max-content minmax(120px,1fr) max-content max-content; }
   .lc-tl-row > div + div { padding-left:12px; }
   .lc-tl-row > .lc-tl-wide { display:none; }
 }
@@ -551,10 +601,14 @@ def timeline_card(res: dict) -> str:
                + [record["start"] + record["seconds"] for record in records]) or 1.0
     pids = sorted(stats["per_worker"])
     total_busy = sum(entry["busy"] for entry in stats["per_worker"].values()) or 1.0
+    data_per_worker: dict[int, int] = {}  # bytes of the file each worker counted
+    for record in records:
+        data_per_worker[record["pid"]] = data_per_worker.get(record["pid"], 0) + record["bytes"]
+    file_mb = sum(data_per_worker.values()) / MB
 
-    rows = ("<div class='lc-tl-row lc-tl-head'><div>Worker</div><div>Chunks over time</div>"
-            "<div class='r'>Chunks</div><div class='r lc-tl-wide'>Busy</div>"
-            "<div class='r lc-tl-wide'>Share</div></div>")
+    rows = ("<div class='lc-tl-row lc-tl-head'><div>Worker</div><div>What each worker did, over time</div>"
+            "<div class='r'>Chunks</div><div class='r'>Data</div><div class='r lc-tl-wide'>Time working</div>"
+            "<div class='r lc-tl-wide'>Share of work</div></div>")
     for index, pid in enumerate(pids):
         colour, text = WORKER_COLOURS[index % len(WORKER_COLOURS)]
         blocks = ""
@@ -576,6 +630,7 @@ def timeline_card(res: dict) -> str:
                  f"{worker_figure(colour, text, index + 1)}<div><b>Worker {index + 1}</b><small>pid {pid}</small></div></div>"
                  f"<div><div class='lc-tl-track'>{blocks}</div></div>"
                  f"<div class='lc-tl-num r'>{entry['chunks']}</div>"
+                 f"<div class='lc-tl-num r'>{data_per_worker[pid] / MB:.1f} MB</div>"
                  f"<div class='lc-tl-num r lc-tl-wide'>{entry['busy']:.2f} s</div>"
                  f"<div class='lc-tl-num r lc-tl-wide'>{100 * entry['busy'] / total_busy:.1f}%</div></div>")
 
@@ -585,26 +640,30 @@ def timeline_card(res: dict) -> str:
                  f"<div class='lc-tl-who' title='Worker {index + 1}: no chunk left to take'>"
                  f"{worker_figure('', '', index + 1, idle=True)}<div><b>Worker {index + 1}</b><small>idle</small></div></div>"
                  f"<div><div class='lc-tl-track'><div class='lc-tl-idle'>IDLE</div></div></div>"
-                 f"<div class='lc-tl-num dim r'>0</div><div class='lc-tl-num dim r lc-tl-wide'>-</div>"
+                 f"<div class='lc-tl-num dim r'>0</div><div class='lc-tl-num dim r'>0 MB</div>"
+                 f"<div class='lc-tl-num dim r lc-tl-wide'>-</div>"
                  f"<div class='lc-tl-num dim r lc-tl-wide'>-</div></div>")
 
     ticks = "".join(f"<span style='left:{100 * share:.0f}%'>{span * share:.2f} s</span>"
                     for share in (0, 0.25, 0.5, 0.75, 1))
     rows += (f"<div class='lc-tl-row lc-tl-axis'><div></div><div><div class='lc-tl-ticks'>{ticks}</div></div>"
-             f"<div></div><div class='lc-tl-wide'></div><div class='lc-tl-wide'></div></div>")
+             f"<div></div><div></div><div class='lc-tl-wide'></div><div class='lc-tl-wide'></div></div>")
 
+    chunk_mb = stats["chunk_size"] / MB
+    summary = (f"The <b>{file_mb:.0f} MB</b> file was cut into <b>{plural(stats['num_chunks'], 'chunk')}</b> "
+               f"of about <b>{chunk_mb:.1f} MB</b> each and shared by <b>{plural(stats['workers'], 'worker')}</b>. "
+               f"Each worker took a chunk, counted its words, then took the next free chunk, until none were left.")
     compact = " lc-tl-compact" if stats["workers"] > COMPACT_ABOVE else ""
     return (f"{TIMELINE_CSS}<div class='lc-card{compact}' style='margin-top:12px'>"
-            f"<div class='lc-tl-top'><span class='lc-h3'>Worker timeline &amp; load balancing</span>"
-            f"<span class='lc-mini'>{plural(stats['num_chunks'], 'chunk')} · map + reduce {span:.2f} s · "
-            f"replayed in {REPLAY_SECONDS:g} s</span></div>"
+            f"<div class='lc-tl-top'><span class='lc-h3'>How the work was shared</span>"
+            f"<span class='lc-mini'>replayed in {REPLAY_SECONDS:g} s</span></div>"
+            f"<div class='lc-tl-summary'>{summary}</div>"
             f"<div class='lc-tl-grid'>{rows}</div>"
-            f"<div class='lc-foot2'>Each figure is one worker process and each block is one chunk, numbered in "
-            f"the order it started. A worker that finishes a chunk immediately takes the next one "
-            f"(imap_unordered, chunksize=1), so the work spreads by itself; Chunks, Busy and Share show how "
-            f"evenly it was shared. Empty space at the left is the worker processes still starting up; empty "
-            f"space at the right is a worker with no chunk left while the others finish. Hover a block for "
-            f"its details.</div></div>")
+            f"<div class='lc-foot2'><b>How to read it:</b> each row is one worker. Each block is one chunk of "
+            f"the file; it starts when the worker began counting it and is as long as the counting took. "
+            f"The number on a block is the order the chunks were handed out. Because a free worker always "
+            f"grabs the next chunk, the workers finish at about the same time (load balancing). The gap at "
+            f"the start is the workers starting up. Hover a block for its exact size and time.</div></div>")
 
 
 def scroll_to_results(run_id: int) -> None:
