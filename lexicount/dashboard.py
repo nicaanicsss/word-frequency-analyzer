@@ -151,12 +151,15 @@ div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.8
 .lc-ok.bad .dot { background:#9b2c2c; }
 .lc-note { background:#ece5dc; border-radius:16px; padding:16px 20px; margin-top:12px; }
 .lc-note p { font-size:0.86rem; line-height:1.6; color:#2d2a26; margin-top:8px; max-width:none; }
-.lc-grid2 { display:grid; grid-template-columns:1.65fr 1fr; gap:12px; margin-top:14px; align-items:start; }
+.lc-grid2 { display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-top:14px; align-items:stretch; }
+@media (max-width: 900px) { .lc-grid2 { grid-template-columns:1fr; } }
 .lc-card { background:#fff; border-radius:18px; padding:20px 22px; }
-.lc-stack { display:flex; flex-direction:column; gap:12px; }
 .lc-cardhead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
 .lc-mini { font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:var(--brown); }
-.lc-bar { display:grid; grid-template-columns:26px 70px 1fr 90px; align-items:center; gap:10px; margin:9px 0; }
+/* columns in ch (character widths) so they grow with the font size instead of wrapping */
+.lc-bar { display:grid; grid-template-columns:3ch minmax(6ch,12ch) 1fr 12ch; align-items:center; gap:10px; margin:9px 0;
+  font-family:'JetBrains Mono',monospace; font-size:0.72rem; }
+.lc-bar .w, .lc-bar .c { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lc-bar .i { font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--soft); }
 .lc-bar .w { font-family:'JetBrains Mono',monospace; font-size:0.74rem; color:var(--ink); }
 .lc-bar .t { background:var(--sand); height:9px; border-radius:999px; overflow:hidden; }
@@ -437,28 +440,11 @@ def time_card(res: dict) -> str:
             f"<th class='r'>Time</th><th class='r'>Share</th></tr>{rows}</table></div>")
 
 
-def load_card(res: dict) -> str:
-    """Chunks and busy time per worker process (LOAD BALANCING)."""
-    stats = res["stats"]
-    workers = sorted(stats["per_worker"].items())
-    total_busy = sum(entry["busy"] for _, entry in workers) or 1
-    rows = "".join(
-        f"<tr><td>Worker {i} <span style='color:#9a948a;font-size:0.66rem'>pid {pid}</span></td>"
-        f"<td class='r'>{entry['chunks']}</td><td class='r'>{entry['busy']:.2f}s</td>"
-        f"<td class='r'>{100 * entry['busy'] / total_busy:.1f}%</td></tr>"
-        for i, (pid, entry) in enumerate(workers, start=1))
-    return (f"<div class='lc-card'><div class='lc-cardhead'><span class='lc-h3'>Load balancing</span>"
-            f"<span class='lc-mini'>{stats['num_chunks']} chunks</span></div><table class='lc-tbl'>"
-            f"<tr><th>Worker</th><th class='r'>Chunks</th><th class='r'>Busy</th><th class='r'>Share</th></tr>"
-            f"{rows}</table><div class='lc-foot2'>Filled per run from worker PIDs. Chunks are handed out "
-            f"with imap_unordered, so a free worker takes the next one.</div></div>")
-
-
 # ---------------------------------------------------------------- worker timeline
 
-# One colour per worker: (avatar and chunk colour, text colour on top of it).
+# One colour per worker: (figure and chunk colour, text colour on top of it).
 # 16 shades so every worker up to the slider maximum (2 x cores) looks different;
-# the number badge on each avatar keeps them apart on bigger machines too.
+# the number on each figure keeps them apart on bigger machines too.
 WORKER_COLOURS = [
     ("#1d1d1a", "#fff"), ("#7a5c43", "#fff"), ("#a8865f", "#fff"), ("#5a4636", "#fff"),
     ("#3d3a35", "#fff"), ("#8e785a", "#fff"), ("#c9b8a6", "#1d1d1a"), ("#6f6a62", "#fff"),
@@ -468,54 +454,80 @@ WORKER_COLOURS = [
 REPLAY_SECONDS = 2.5  # the real map phase is replayed at this length on screen
 COMPACT_ABOVE = 8     # more workers than this -> smaller rows so the card stays short
 
+# One grid for the whole card, so every row's track lines up with the time axis and
+# the name column grows with its text instead of running under the bars.
 TIMELINE_CSS = """
 <style>
-.lc-tl-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
-.lc-tl-row { display:grid; grid-template-columns:230px 1fr; gap:14px; align-items:center;
-  padding:8px 0; border-bottom:1px solid var(--line); }
-.lc-tl-who { display:flex; gap:11px; align-items:center; min-width:0; font-size:0.82rem; color:var(--ink); }
-.lc-tl-who b { display:block; font-weight:600; white-space:nowrap; }
-.lc-tl-who b span { font-weight:400; margin-left:4px; }
-.lc-tl-who span { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--soft); white-space:nowrap; }
-.lc-av { width:40px; height:40px; flex:none; }
-.lc-tl-track { position:relative; height:32px; background:var(--sand); border-radius:9px; overflow:hidden; }
+.lc-tl-top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+.lc-tl-grid { display:grid; grid-template-columns:max-content minmax(220px,1fr) repeat(3,max-content);
+  align-items:center; }
+.lc-tl-row { display:contents; }
+/* no column-gap: spacing is padding inside the cells, so each row's divider line is unbroken */
+.lc-tl-row > div { padding:8px 0; border-bottom:1px solid var(--line); min-width:0; align-self:stretch;
+  display:flex; align-items:center; }
+.lc-tl-row > div + div { padding-left:20px; }
+.lc-tl-row > div.r { justify-content:flex-end; }
+.lc-tl-row > div > .lc-tl-track { flex:1; }
+.lc-tl-head > div { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--muted); padding-top:0; padding-bottom:8px; }
+.lc-tl-grid .r { text-align:right; }
+.lc-tl-who { display:flex; align-items:center; gap:10px; white-space:nowrap; font-size:0.82rem; color:var(--ink); }
+.lc-tl-who b { display:block; font-weight:600; }
+.lc-tl-who small { display:block; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--soft); }
+.lc-tl-num { font-family:'JetBrains Mono',monospace; font-size:0.76rem; white-space:nowrap; color:var(--ink); }
+.lc-tl-num.dim { color:var(--soft); }
+.lc-fig { width:30px; height:52px; flex:none; overflow:visible; }
+.lc-fig.work { transform-origin:bottom center; animation:lc-tl-bob 0.42s ease-in-out alternate; }
+.lc-tl-track { position:relative; height:30px; background:var(--sand); border-radius:9px; overflow:hidden; }
 .lc-tl-chunk { position:absolute; top:4px; bottom:4px; border-radius:5px; box-shadow:inset -2px 0 0 #fff;
-  display:flex; align-items:center; justify-content:center; overflow:hidden;
+  display:flex; align-items:center; justify-content:center; overflow:hidden; white-space:nowrap;
   font-family:'JetBrains Mono',monospace; font-size:0.6rem; transform-origin:left center;
   animation-name:lc-tl-grow; animation-timing-function:linear; animation-fill-mode:both; }
 .lc-tl-idle { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-  font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.14em; color:var(--soft);
+  font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.14em; color:var(--soft);
   border:1px dashed var(--line); border-radius:9px; }
-.lc-tl-axis { display:grid; grid-template-columns:230px 1fr; gap:14px; }
-.lc-tl-ticks { position:relative; height:20px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--soft); }
-.lc-tl-ticks span { position:absolute; top:6px; transform:translateX(-50%); white-space:nowrap; }
+.lc-tl-axis > div { border-bottom:none !important; padding-top:0 !important; padding-bottom:0 !important; }
+.lc-tl-row > div > .lc-tl-ticks { flex:1; }
+.lc-tl-ticks { position:relative; height:22px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--soft); }
+.lc-tl-ticks span { position:absolute; top:7px; transform:translateX(-50%); white-space:nowrap; }
 .lc-tl-ticks span:first-child { transform:none; }
 .lc-tl-ticks span:last-child { transform:translateX(-100%); }
-.lc-tl-compact .lc-tl-row { padding:3px 0; }
-.lc-tl-compact .lc-av { width:28px; height:28px; }
-.lc-tl-compact .lc-tl-who { gap:9px; font-size:0.76rem; }
-.lc-tl-compact .lc-tl-who > div > span { display:none; }
+.lc-tl-compact .lc-tl-row > div { padding-top:3px; padding-bottom:3px; }
+.lc-tl-compact .lc-tl-head > div { padding-top:0; padding-bottom:8px; }
+.lc-tl-compact .lc-fig { width:18px; height:31px; }
+.lc-tl-compact .lc-tl-who { font-size:0.76rem; gap:8px; }
+.lc-tl-compact .lc-tl-who small { display:none; }
 .lc-tl-compact .lc-tl-track { height:22px; border-radius:7px; }
 .lc-tl-compact .lc-tl-chunk { top:3px; bottom:3px; font-size:0.55rem; }
-.lc-tl-compact .lc-tl-idle { font-size:0.55rem; }
+.lc-tl-compact .lc-tl-num { font-size:0.7rem; }
 @keyframes lc-tl-grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
-@media (prefers-reduced-motion: reduce) { .lc-tl-chunk { animation:none; } }
-@media (max-width: 760px) { .lc-tl-row, .lc-tl-axis { grid-template-columns:140px 1fr; } .lc-tl-who span { display:none; } }
+@keyframes lc-tl-bob { from { transform:translateY(0); } to { transform:translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .lc-tl-chunk, .lc-fig.work { animation:none; } }
+@media (max-width: 760px) {
+  .lc-tl-grid { grid-template-columns:max-content minmax(120px,1fr) max-content; }
+  .lc-tl-row > div + div { padding-left:12px; }
+  .lc-tl-row > .lc-tl-wide { display:none; }
+}
 </style>
 """
 
 
-def avatar(colour: str, number: int, idle: bool = False) -> str:
-    """A small person icon (head and shoulders) with a number badge: one worker process."""
-    background, figure = ("#e6dfd4", "#ffffff") if idle else (colour, "rgba(255,255,255,0.92)")
-    badge_ring = "#c9c0b2" if idle else colour
-    return (f"<svg class='lc-av' viewBox='0 0 44 44' aria-hidden='true'>"
-            f"<circle cx='20' cy='20' r='20' fill='{background}'/>"
-            f"<circle cx='20' cy='15' r='6.5' fill='{figure}'/>"
-            f"<path d='M8.5 33.5c1.6-6.4 6.3-9.8 11.5-9.8s9.9 3.4 11.5 9.8z' fill='{figure}'/>"
-            f"<circle cx='34' cy='34' r='9' fill='#fff' stroke='{badge_ring}' stroke-width='2'/>"
-            f"<text x='34' y='37.4' text-anchor='middle' font-family='JetBrains Mono,monospace' "
-            f"font-size='{9.5 if number < 10 else 8}' font-weight='600' fill='#1d1d1a'>{number}</text></svg>")
+def worker_figure(colour: str, text: str, number: int, idle: bool = False) -> str:
+    """A small standing person (head, body, arms, legs) with its worker number on the chest."""
+    fill = "#ddd5c9" if idle else colour
+    label = "#9a948a" if idle else text
+    size = 8 if number < 10 else 6.5
+    return (f"<svg class='lc-fig{'' if idle else ' work'}' viewBox='0 0 24 42' aria-hidden='true' "
+            f"style='animation-iteration-count:{0 if idle else int(REPLAY_SECONDS / 0.42) // 2 * 2}'>"
+            f"<circle cx='12' cy='5.6' r='5' fill='{fill}'/>"
+            f"<rect x='5.6' y='12' width='12.8' height='15' rx='4.4' fill='{fill}'/>"
+            f"<rect x='1' y='13' width='4' height='12.5' rx='2' fill='{fill}'/>"
+            f"<rect x='19' y='13' width='4' height='12.5' rx='2' fill='{fill}'/>"
+            f"<rect x='6.8' y='25' width='4.6' height='16.5' rx='2.3' fill='{fill}'/>"
+            f"<rect x='12.6' y='25' width='4.6' height='16.5' rx='2.3' fill='{fill}'/>"
+            f"<text x='12' y='{22.6 if number < 10 else 22.2}' text-anchor='middle' "
+            f"font-family='JetBrains Mono,monospace' font-size='{size}' font-weight='700' "
+            f"fill='{label}'>{number}</text></svg>")
 
 
 def plural(count: int, word: str) -> str:
@@ -524,20 +536,24 @@ def plural(count: int, word: str) -> str:
 
 
 def timeline_card(res: dict) -> str:
-    """Worker timeline (Gantt chart): which worker counted which chunk, and when.
+    """Worker timeline (Gantt chart) plus load balancing: who counted which chunk, and when.
 
-    Each row is one worker process. Each block is one chunk, placed at the time
-    the worker started it (measured from the start of the map phase) and as wide
-    as the time it took. Blocks are numbered in the order they started. The
-    blocks grow in that order, replaying the real run in REPLAY_SECONDS.
+    Each row is one worker process, drawn as a small person. Each block is one chunk,
+    placed at the time the worker started it (measured from the start of the map
+    phase) and as wide as the time it took. Blocks are numbered in the order they
+    started and grow in that order, replaying the real run in REPLAY_SECONDS. The
+    columns on the right are the load-balancing figures: chunks, busy time, share.
     """
     stats = res["stats"]
     records = sorted(stats["chunk_records"], key=lambda record: record["start"])
     span = max([res["timings"]["map_reduce"]]
                + [record["start"] + record["seconds"] for record in records]) or 1.0
     pids = sorted(stats["per_worker"])
+    total_busy = sum(entry["busy"] for entry in stats["per_worker"].values()) or 1.0
 
-    rows = ""
+    rows = ("<div class='lc-tl-row lc-tl-head'><div>Worker</div><div>Chunks over time</div>"
+            "<div class='r'>Chunks</div><div class='r lc-tl-wide'>Busy</div>"
+            "<div class='r lc-tl-wide'>Share</div></div>")
     for index, pid in enumerate(pids):
         colour, text = WORKER_COLOURS[index % len(WORKER_COLOURS)]
         blocks = ""
@@ -554,31 +570,40 @@ def timeline_card(res: dict) -> str:
                        f"animation-duration:{max(0.05, REPLAY_SECONDS * record['seconds'] / span):.2f}s'>"
                        f"{number if width > 3.2 else ''}</div>")
         entry = stats["per_worker"][pid]
-        details = f"{plural(entry['chunks'], 'chunk')} · busy {entry['busy']:.2f} s"
-        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who' title='Worker {index + 1}, pid {pid}: {details}'>"
-                 f"{avatar(colour, index + 1)}<div><b>Worker {index + 1} <span>pid {pid}</span></b>"
-                 f"<span>{details}</span></div></div>"
-                 f"<div class='lc-tl-track'>{blocks}</div></div>")
+        rows += (f"<div class='lc-tl-row'>"
+                 f"<div class='lc-tl-who' title='Worker {index + 1}, pid {pid}'>"
+                 f"{worker_figure(colour, text, index + 1)}<div><b>Worker {index + 1}</b><small>pid {pid}</small></div></div>"
+                 f"<div><div class='lc-tl-track'>{blocks}</div></div>"
+                 f"<div class='lc-tl-num r'>{entry['chunks']}</div>"
+                 f"<div class='lc-tl-num r lc-tl-wide'>{entry['busy']:.2f} s</div>"
+                 f"<div class='lc-tl-num r lc-tl-wide'>{100 * entry['busy'] / total_busy:.1f}%</div></div>")
 
     # Workers that never received a chunk (more workers than chunks, e.g. a small file).
     for index in range(len(pids), stats["workers"]):
-        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who' title='Worker {index + 1}: no chunk left to take'>"
-                 f"{avatar('', index + 1, idle=True)}<div>"
-                 f"<b>Worker {index + 1}</b><span>no chunk left to take</span></div></div>"
-                 f"<div class='lc-tl-track'><div class='lc-tl-idle'>IDLE</div></div></div>")
+        rows += (f"<div class='lc-tl-row'>"
+                 f"<div class='lc-tl-who' title='Worker {index + 1}: no chunk left to take'>"
+                 f"{worker_figure('', '', index + 1, idle=True)}<div><b>Worker {index + 1}</b><small>idle</small></div></div>"
+                 f"<div><div class='lc-tl-track'><div class='lc-tl-idle'>IDLE</div></div></div>"
+                 f"<div class='lc-tl-num dim r'>0</div><div class='lc-tl-num dim r lc-tl-wide'>-</div>"
+                 f"<div class='lc-tl-num dim r lc-tl-wide'>-</div></div>")
 
     ticks = "".join(f"<span style='left:{100 * share:.0f}%'>{span * share:.2f} s</span>"
                     for share in (0, 0.25, 0.5, 0.75, 1))
+    rows += (f"<div class='lc-tl-row lc-tl-axis'><div></div><div><div class='lc-tl-ticks'>{ticks}</div></div>"
+             f"<div></div><div class='lc-tl-wide'></div><div class='lc-tl-wide'></div></div>")
+
     compact = " lc-tl-compact" if stats["workers"] > COMPACT_ABOVE else ""
     return (f"{TIMELINE_CSS}<div class='lc-card{compact}' style='margin-top:12px'>"
-            f"<div class='lc-tl-head'><span class='lc-h3'>Worker timeline</span>"
-            f"<span class='lc-mini'>map + reduce phase · {span:.2f} s · replayed in {REPLAY_SECONDS:g} s</span></div>"
-            f"{rows}<div class='lc-tl-axis'><div></div><div class='lc-tl-ticks'>{ticks}</div></div>"
-            f"<div class='lc-foot2'>Each person is one worker process and each block is one chunk, numbered "
-            f"in the order it started. A worker that finishes a chunk immediately takes the next one "
-            f"(imap_unordered, chunksize=1), so the work spreads by itself. Empty space at the left is "
-            f"the worker processes still starting up; empty space at the right is a worker with no chunk "
-            f"left while the others finish. Hover a block for its details.</div></div>")
+            f"<div class='lc-tl-top'><span class='lc-h3'>Worker timeline &amp; load balancing</span>"
+            f"<span class='lc-mini'>{plural(stats['num_chunks'], 'chunk')} · map + reduce {span:.2f} s · "
+            f"replayed in {REPLAY_SECONDS:g} s</span></div>"
+            f"<div class='lc-tl-grid'>{rows}</div>"
+            f"<div class='lc-foot2'>Each figure is one worker process and each block is one chunk, numbered in "
+            f"the order it started. A worker that finishes a chunk immediately takes the next one "
+            f"(imap_unordered, chunksize=1), so the work spreads by itself; Chunks, Busy and Share show how "
+            f"evenly it was shared. Empty space at the left is the worker processes still starting up; empty "
+            f"space at the right is a worker with no chunk left while the others finish. Hover a block for "
+            f"its details.</div></div>")
 
 
 def results_view(res: dict) -> None:
@@ -587,7 +612,7 @@ def results_view(res: dict) -> None:
     show(f"<div class='lc-run'>Last run · {html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
          f" · {actual_mb:.2f} MB chunks · {res['mode']} IPC</div>")
     show(kpi_row(res) + correctness_block(res) + meaning_block(res))
-    show(f"<div class='lc-grid2'>{word_bars(res)}<div class='lc-stack'>{time_card(res)}{load_card(res)}</div></div>")
+    show(f"<div class='lc-grid2'>{word_bars(res)}{time_card(res)}</div>")
     show(timeline_card(res))
 
 
