@@ -702,7 +702,16 @@ def scroll_to_results(run_id: int) -> None:
 
 COMPARE_CSS = """
 <style>
-.lc-cmp { margin-top:12px; }
+.lc-cmp { margin-top:12px; padding-top:14px !important; padding-bottom:14px !important; }
+.lc-cmp summary { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; cursor:pointer; list-style:none; }
+.lc-cmp summary::-webkit-details-marker { display:none; }
+.lc-cmp summary .lc-h3 { font-size:1.1rem; }
+.lc-cmp-gist { font-size:0.82rem; color:var(--muted); flex:1; }
+.lc-cmp-flag { color:#7a5c43; font-weight:600; }
+.lc-cmp-open { font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--brown); white-space:nowrap; }
+.lc-cmp-open::after { content:' · show details ▾'; }
+.lc-cmp[open] .lc-cmp-open::after { content:' · hide ▴'; }
+.lc-cmp-body { margin-top:14px; }
 .lc-cmp .lc-tbl td:first-child { color:var(--muted); }
 .lc-cmp .lc-tbl td.chg { font-weight:600; color:var(--ink); }
 .lc-cmp .lc-tbl td.chg.dim { font-weight:400; color:var(--soft); }
@@ -786,14 +795,19 @@ def compare_card(prev: dict, cur: dict) -> str:
         take = (f"Parallel time went from {a['t_par']:.2f} s to {b['t_par']:.2f} s ({par_text}), "
                 f"but the settings differ, so read this with care.")
 
-    return (f"{COMPARE_CSS}<div class='lc-card lc-cmp'><div class='lc-cardhead'>"
-            f"<span class='lc-h3'>Compare with previous run</span>"
-            f"<span class='lc-mini'>run {a['id']} vs run {b['id']}</span></div>"
-            f"<div class='lc-cmp-take'>{take}</div>{warning}"
+    # Collapsed by default (a plain HTML <details>): one line with the gist, the full table on click.
+    gist = f"{a['p']} → {b['p']} workers · parallel time {par_text}"
+    if mismatches:
+        gist += " · <span class='lc-cmp-flag'>settings differ</span>"
+    return (f"{COMPARE_CSS}<details class='lc-card lc-cmp'>"
+            f"<summary><span class='lc-h3'>Compare with previous run</span>"
+            f"<span class='lc-cmp-gist'>{gist}</span>"
+            f"<span class='lc-cmp-open'>run {a['id']} vs run {b['id']}</span></summary>"
+            f"<div class='lc-cmp-body'><div class='lc-cmp-take'>{take}</div>{warning}"
             f"<table class='lc-tbl'><tr><th></th><th class='r'>Previous run</th><th class='r'>This run</th>"
             f"<th class='r'>Change</th></tr>{body}</table>"
             f"<div class='lc-foot2'>Each column is a single run, so timings can vary by a few percent "
-            f"between runs; changes under {SAME_RANGE:.0%} are shown as \"about the same\".</div></div>")
+            f"between runs; changes under {SAME_RANGE:.0%} are shown as \"about the same\".</div></div></details>")
 
 
 def results_view(res: dict, previous: dict | None = None) -> None:
@@ -846,11 +860,12 @@ def analyzer_page() -> None:
     if settings is None:
         return
     if settings["run"]:
+        new_result = run_analysis(settings)  # if this fails, the stored runs stay as they were
         run_id = st.session_state.get("run_count", 0) + 1
         st.session_state["run_count"] = run_id
         # Keep the last result as "previous" so the two runs can be compared.
         st.session_state["previous_results"] = st.session_state.get("results")
-        st.session_state["results"] = {**run_analysis(settings), "run_id": run_id}
+        st.session_state["results"] = {**new_result, "run_id": run_id}
         st.session_state["scroll_to_run"] = run_id  # scroll once, right after this run
 
     res = st.session_state.get("results")
