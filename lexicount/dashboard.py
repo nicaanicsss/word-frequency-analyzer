@@ -454,6 +454,109 @@ def load_card(res: dict) -> str:
             f"with imap_unordered, so a free worker takes the next one.</div></div>")
 
 
+# ---------------------------------------------------------------- worker timeline
+
+# One colour per worker: (avatar and chunk colour, text colour on top of it).
+WORKER_COLOURS = [
+    ("#1d1d1a", "#fff"), ("#7a5c43", "#fff"), ("#a8865f", "#fff"), ("#5a4636", "#fff"),
+    ("#3d3a35", "#fff"), ("#8e785a", "#fff"), ("#c9b8a6", "#1d1d1a"), ("#6f6a62", "#fff"),
+]
+REPLAY_SECONDS = 2.5  # the real map phase is replayed at this length on screen
+
+TIMELINE_CSS = """
+<style>
+.lc-tl-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+.lc-tl-row { display:grid; grid-template-columns:230px 1fr; gap:14px; align-items:center;
+  padding:8px 0; border-bottom:1px solid var(--line); }
+.lc-tl-who { display:flex; gap:11px; align-items:center; min-width:0; font-size:0.82rem; color:var(--ink); }
+.lc-tl-who b { display:block; font-weight:600; white-space:nowrap; }
+.lc-tl-who b span { font-weight:400; margin-left:4px; }
+.lc-tl-who span { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--soft); white-space:nowrap; }
+.lc-av { width:40px; height:40px; flex:none; }
+.lc-tl-track { position:relative; height:32px; background:var(--sand); border-radius:9px; overflow:hidden; }
+.lc-tl-chunk { position:absolute; top:4px; bottom:4px; border-radius:5px; box-shadow:inset -2px 0 0 #fff;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+  font-family:'JetBrains Mono',monospace; font-size:0.6rem; transform-origin:left center;
+  animation-name:lc-tl-grow; animation-timing-function:linear; animation-fill-mode:both; }
+.lc-tl-idle { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.14em; color:var(--soft);
+  border:1px dashed var(--line); border-radius:9px; }
+.lc-tl-axis { display:grid; grid-template-columns:230px 1fr; gap:14px; }
+.lc-tl-ticks { position:relative; height:20px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--soft); }
+.lc-tl-ticks span { position:absolute; top:6px; transform:translateX(-50%); white-space:nowrap; }
+.lc-tl-ticks span:first-child { transform:none; }
+.lc-tl-ticks span:last-child { transform:translateX(-100%); }
+@keyframes lc-tl-grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+@media (prefers-reduced-motion: reduce) { .lc-tl-chunk { animation:none; } }
+@media (max-width: 760px) { .lc-tl-row, .lc-tl-axis { grid-template-columns:140px 1fr; } .lc-tl-who span { display:none; } }
+</style>
+"""
+
+
+def avatar(colour: str, idle: bool = False) -> str:
+    """A small person icon (head and shoulders) that stands for one worker process."""
+    background, figure = ("#e6dfd4", "#ffffff") if idle else (colour, "rgba(255,255,255,0.92)")
+    return (f"<svg class='lc-av' viewBox='0 0 40 40' aria-hidden='true'>"
+            f"<circle cx='20' cy='20' r='20' fill='{background}'/>"
+            f"<circle cx='20' cy='15' r='6.5' fill='{figure}'/>"
+            f"<path d='M8.5 33.5c1.6-6.4 6.3-9.8 11.5-9.8s9.9 3.4 11.5 9.8z' fill='{figure}'/></svg>")
+
+
+def timeline_card(res: dict) -> str:
+    """Worker timeline (Gantt chart): which worker counted which chunk, and when.
+
+    Each row is one worker process. Each block is one chunk, placed at the time
+    the worker started it (measured from the start of the map phase) and as wide
+    as the time it took. Blocks are numbered in the order they started. The
+    blocks grow in that order, replaying the real run in REPLAY_SECONDS.
+    """
+    stats = res["stats"]
+    records = sorted(stats["chunk_records"], key=lambda record: record["start"])
+    span = max([res["timings"]["map_reduce"]]
+               + [record["start"] + record["seconds"] for record in records]) or 1.0
+    pids = sorted(stats["per_worker"])
+
+    rows = ""
+    for index, pid in enumerate(pids):
+        colour, text = WORKER_COLOURS[index % len(WORKER_COLOURS)]
+        blocks = ""
+        for number, record in enumerate(records, start=1):
+            if record["pid"] != pid:
+                continue
+            left = 100 * record["start"] / span
+            width = max(0.4, 100 * record["seconds"] / span)
+            tip = (f"Chunk {number}: {record['bytes'] / MB:.2f} MB, {record['seconds']:.3f} s, "
+                   f"started at {record['start']:.3f} s")
+            blocks += (f"<div class='lc-tl-chunk' title='{tip}' style='left:{left:.2f}%;width:{width:.2f}%;"
+                       f"background:{colour};color:{text};"
+                       f"animation-delay:{REPLAY_SECONDS * record['start'] / span:.2f}s;"
+                       f"animation-duration:{max(0.05, REPLAY_SECONDS * record['seconds'] / span):.2f}s'>"
+                       f"{number if width > 3.2 else ''}</div>")
+        entry = stats["per_worker"][pid]
+        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who'>{avatar(colour)}<div>"
+                 f"<b>Worker {index + 1} <span>pid {pid}</span></b>"
+                 f"<span>{entry['chunks']} chunks · busy {entry['busy']:.2f} s</span></div></div>"
+                 f"<div class='lc-tl-track'>{blocks}</div></div>")
+
+    # Workers that never received a chunk (more workers than chunks, e.g. a small file).
+    for index in range(len(pids), stats["workers"]):
+        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who'>{avatar('', idle=True)}<div>"
+                 f"<b>Worker {index + 1}</b><span>no chunk left to take</span></div></div>"
+                 f"<div class='lc-tl-track'><div class='lc-tl-idle'>IDLE</div></div></div>")
+
+    ticks = "".join(f"<span style='left:{100 * share:.0f}%'>{span * share:.2f} s</span>"
+                    for share in (0, 0.25, 0.5, 0.75, 1))
+    return (f"{TIMELINE_CSS}<div class='lc-card' style='margin-top:12px'>"
+            f"<div class='lc-tl-head'><span class='lc-h3'>Worker timeline</span>"
+            f"<span class='lc-mini'>map + reduce phase · {span:.2f} s · replayed in {REPLAY_SECONDS:g} s</span></div>"
+            f"{rows}<div class='lc-tl-axis'><div></div><div class='lc-tl-ticks'>{ticks}</div></div>"
+            f"<div class='lc-foot2'>Each person is one worker process and each block is one chunk, numbered "
+            f"in the order it started. A worker that finishes a chunk immediately takes the next one "
+            f"(imap_unordered, chunksize=1), so the work spreads by itself. Empty space at the left is "
+            f"the worker processes still starting up; empty space at the right is a worker with no chunk "
+            f"left while the others finish. Hover a block for its details.</div></div>")
+
+
 def results_view(res: dict) -> None:
     """Everything shown after a run."""
     actual_mb = res["stats"]["chunk_size"] / MB
@@ -461,6 +564,7 @@ def results_view(res: dict) -> None:
          f" · {actual_mb:.2f} MB chunks · {res['mode']} IPC</div>")
     show(kpi_row(res) + correctness_block(res) + meaning_block(res))
     show(f"<div class='lc-grid2'>{word_bars(res)}<div class='lc-stack'>{time_card(res)}{load_card(res)}</div></div>")
+    show(timeline_card(res))
 
 
 def pdc_table() -> str:

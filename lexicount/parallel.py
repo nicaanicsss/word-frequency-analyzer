@@ -34,8 +34,10 @@ MODES = ("offset", "send")
 # A task is (path, start, end, data). In "offset" mode data is None and the
 # worker reads the bytes itself; in "send" mode data holds the chunk bytes.
 Task = tuple[str, int, int, Optional[bytes]]
-# A map result is (partial counts, seconds the worker spent, worker PID).
-MapResult = tuple[Counter[str], float, int]
+# A map result is (partial counts, seconds the worker spent, worker PID,
+# perf_counter() when the worker started the chunk, chunk start byte, chunk end byte).
+# The start time and byte range only feed the worker timeline; counting ignores them.
+MapResult = tuple[Counter[str], float, int, float, int, int]
 
 
 def read_range(path: str, start: int, end: int) -> bytes:
@@ -58,7 +60,9 @@ def map_chunk(task: Task) -> MapResult:
         data = read_range(path, start, end)
     partial_counts = count_words(data)
     busy_seconds = time.perf_counter() - started
-    return partial_counts, busy_seconds, os.getpid()
+    # perf_counter() uses one system-wide clock on Windows, macOS and Linux, so the
+    # master can line up start times from different worker processes.
+    return partial_counts, busy_seconds, os.getpid(), started, start, end
 
 
 def build_tasks(path: str, chunks: list[tuple[int, int]], mode: str) -> Iterator[Task]:
@@ -144,9 +148,12 @@ def parallel_count(path: str, workers: int, chunk_size: int,
         # REDUCE PHASE: merge each partial Counter as soon as it arrives.
         # update() adds counts in place; sum(counters, Counter()) would build
         # a brand-new Counter at every step and be much slower.
-        for partial_counts, seconds, pid in results:
+        for partial_counts, seconds, pid, started, start, end in results:
             total.update(partial_counts)
-            chunk_records.append({"pid": pid, "seconds": seconds})
+            # "start" is measured from the beginning of the map phase (worker timeline).
+            chunk_records.append({"pid": pid, "seconds": seconds,
+                                  "start": max(0.0, started - after_partition),
+                                  "bytes": end - start})
         # SYNCHRONIZATION: this point is reached only after ALL chunks have
         # been mapped and reduced (the loop above consumes every result).
         after_map_reduce = time.perf_counter()
