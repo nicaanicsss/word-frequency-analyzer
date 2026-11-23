@@ -457,11 +457,16 @@ def load_card(res: dict) -> str:
 # ---------------------------------------------------------------- worker timeline
 
 # One colour per worker: (avatar and chunk colour, text colour on top of it).
+# 16 shades so every worker up to the slider maximum (2 x cores) looks different;
+# the number badge on each avatar keeps them apart on bigger machines too.
 WORKER_COLOURS = [
     ("#1d1d1a", "#fff"), ("#7a5c43", "#fff"), ("#a8865f", "#fff"), ("#5a4636", "#fff"),
     ("#3d3a35", "#fff"), ("#8e785a", "#fff"), ("#c9b8a6", "#1d1d1a"), ("#6f6a62", "#fff"),
+    ("#4a3a2d", "#fff"), ("#bfa182", "#1d1d1a"), ("#2b2925", "#fff"), ("#9c7b57", "#fff"),
+    ("#857f75", "#fff"), ("#d8c9b6", "#1d1d1a"), ("#634f3d", "#fff"), ("#b0a493", "#1d1d1a"),
 ]
 REPLAY_SECONDS = 2.5  # the real map phase is replayed at this length on screen
+COMPACT_ABOVE = 8     # more workers than this -> smaller rows so the card stays short
 
 TIMELINE_CSS = """
 <style>
@@ -486,6 +491,13 @@ TIMELINE_CSS = """
 .lc-tl-ticks span { position:absolute; top:6px; transform:translateX(-50%); white-space:nowrap; }
 .lc-tl-ticks span:first-child { transform:none; }
 .lc-tl-ticks span:last-child { transform:translateX(-100%); }
+.lc-tl-compact .lc-tl-row { padding:3px 0; }
+.lc-tl-compact .lc-av { width:28px; height:28px; }
+.lc-tl-compact .lc-tl-who { gap:9px; font-size:0.76rem; }
+.lc-tl-compact .lc-tl-who > div > span { display:none; }
+.lc-tl-compact .lc-tl-track { height:22px; border-radius:7px; }
+.lc-tl-compact .lc-tl-chunk { top:3px; bottom:3px; font-size:0.55rem; }
+.lc-tl-compact .lc-tl-idle { font-size:0.55rem; }
 @keyframes lc-tl-grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
 @media (prefers-reduced-motion: reduce) { .lc-tl-chunk { animation:none; } }
 @media (max-width: 760px) { .lc-tl-row, .lc-tl-axis { grid-template-columns:140px 1fr; } .lc-tl-who span { display:none; } }
@@ -493,13 +505,22 @@ TIMELINE_CSS = """
 """
 
 
-def avatar(colour: str, idle: bool = False) -> str:
-    """A small person icon (head and shoulders) that stands for one worker process."""
+def avatar(colour: str, number: int, idle: bool = False) -> str:
+    """A small person icon (head and shoulders) with a number badge: one worker process."""
     background, figure = ("#e6dfd4", "#ffffff") if idle else (colour, "rgba(255,255,255,0.92)")
-    return (f"<svg class='lc-av' viewBox='0 0 40 40' aria-hidden='true'>"
+    badge_ring = "#c9c0b2" if idle else colour
+    return (f"<svg class='lc-av' viewBox='0 0 44 44' aria-hidden='true'>"
             f"<circle cx='20' cy='20' r='20' fill='{background}'/>"
             f"<circle cx='20' cy='15' r='6.5' fill='{figure}'/>"
-            f"<path d='M8.5 33.5c1.6-6.4 6.3-9.8 11.5-9.8s9.9 3.4 11.5 9.8z' fill='{figure}'/></svg>")
+            f"<path d='M8.5 33.5c1.6-6.4 6.3-9.8 11.5-9.8s9.9 3.4 11.5 9.8z' fill='{figure}'/>"
+            f"<circle cx='34' cy='34' r='9' fill='#fff' stroke='{badge_ring}' stroke-width='2'/>"
+            f"<text x='34' y='37.4' text-anchor='middle' font-family='JetBrains Mono,monospace' "
+            f"font-size='{9.5 if number < 10 else 8}' font-weight='600' fill='#1d1d1a'>{number}</text></svg>")
+
+
+def plural(count: int, word: str) -> str:
+    """1 chunk, 2 chunks."""
+    return f"{count} {word}{'' if count == 1 else 's'}"
 
 
 def timeline_card(res: dict) -> str:
@@ -533,20 +554,23 @@ def timeline_card(res: dict) -> str:
                        f"animation-duration:{max(0.05, REPLAY_SECONDS * record['seconds'] / span):.2f}s'>"
                        f"{number if width > 3.2 else ''}</div>")
         entry = stats["per_worker"][pid]
-        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who'>{avatar(colour)}<div>"
-                 f"<b>Worker {index + 1} <span>pid {pid}</span></b>"
-                 f"<span>{entry['chunks']} chunks · busy {entry['busy']:.2f} s</span></div></div>"
+        details = f"{plural(entry['chunks'], 'chunk')} · busy {entry['busy']:.2f} s"
+        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who' title='Worker {index + 1}, pid {pid}: {details}'>"
+                 f"{avatar(colour, index + 1)}<div><b>Worker {index + 1} <span>pid {pid}</span></b>"
+                 f"<span>{details}</span></div></div>"
                  f"<div class='lc-tl-track'>{blocks}</div></div>")
 
     # Workers that never received a chunk (more workers than chunks, e.g. a small file).
     for index in range(len(pids), stats["workers"]):
-        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who'>{avatar('', idle=True)}<div>"
+        rows += (f"<div class='lc-tl-row'><div class='lc-tl-who' title='Worker {index + 1}: no chunk left to take'>"
+                 f"{avatar('', index + 1, idle=True)}<div>"
                  f"<b>Worker {index + 1}</b><span>no chunk left to take</span></div></div>"
                  f"<div class='lc-tl-track'><div class='lc-tl-idle'>IDLE</div></div></div>")
 
     ticks = "".join(f"<span style='left:{100 * share:.0f}%'>{span * share:.2f} s</span>"
                     for share in (0, 0.25, 0.5, 0.75, 1))
-    return (f"{TIMELINE_CSS}<div class='lc-card' style='margin-top:12px'>"
+    compact = " lc-tl-compact" if stats["workers"] > COMPACT_ABOVE else ""
+    return (f"{TIMELINE_CSS}<div class='lc-card{compact}' style='margin-top:12px'>"
             f"<div class='lc-tl-head'><span class='lc-h3'>Worker timeline</span>"
             f"<span class='lc-mini'>map + reduce phase · {span:.2f} s · replayed in {REPLAY_SECONDS:g} s</span></div>"
             f"{rows}<div class='lc-tl-axis'><div></div><div class='lc-tl-ticks'>{ticks}</div></div>"
