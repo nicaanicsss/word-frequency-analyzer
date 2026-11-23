@@ -13,19 +13,15 @@ import html
 import io
 import os
 import platform
-import time
-from collections import Counter
-from multiprocessing import Pool
 
 if __name__ != "__mp_main__":
     import streamlit as st
 
-from chunker import compute_chunks
 from dataset_generator import DATA_DIR
 from main import find_differences, interpret
 from metrics import efficiency, karp_flatt, speedup
-from parallel import build_tasks, map_chunk, summarize_workers
-from sequential import sequential_count, sort_by_frequency
+from parallel import parallel_count
+from sequential import sequential_count
 
 MB = 1024 * 1024
 CPU_COUNT = os.cpu_count() or 1
@@ -329,74 +325,33 @@ def controls() -> dict | None:
 
 # ---------------------------------------------------------------- result blocks
 
-def _get_pool(workers: int) -> Pool:
-    """Return a cached, already-warmed multiprocessing.Pool for `workers` processes."""
-    pools = st.session_state.setdefault("_worker_pools", {})
-    if workers not in pools:
-        pool = Pool(processes=workers)
-        # Warm up workers once so module imports and regex/Counter paths are ready.
-        list(pool.imap_unordered(map_chunk, [("", 0, 0, b"warmup")] * workers, chunksize=1))
-        pools[workers] = pool
-    return pools[workers]
-
-
 def run_analysis(settings: dict) -> dict:
-    """Run sequential + parallel (persistent Pool) and keep everything for display."""
+    """Run sequential + parallel and keep everything for display.
+
+    The parallel run goes through parallel_count, exactly like main.py, so T_par
+    is the full end-to-end time: starting the worker pool, partitioning,
+    map + reduce, shutting the pool down and sorting. Leaving pool start-up out
+    made efficiency look above 100% and Karp-Flatt negative. A new pool per run
+    also means no idle worker processes are left behind between runs.
+    """
     path = settings["path"]
     workers = settings["workers"]
     mode = settings["mode"]
     requested_chunk = int(settings["chunk_mb"] * MB)
 
+    # Ensure small files (e.g. 0.6 MB books) split cleanly across all workers.
+    file_size = os.path.getsize(path)
+    eff_chunk = (
+        min(requested_chunk, max(32 * 1024, file_size // max(workers, 1)))
+        if file_size > 0
+        else requested_chunk
+    )
+
     with st.spinner("Running sequential baseline..."):
         seq_counts, seq_timings = sequential_count(path)
 
     with st.spinner(f"Running parallel MapReduce with {workers} workers..."):
-        t_pool_start = time.perf_counter()
-        pool = _get_pool(workers)
-        t_after_startup = time.perf_counter()
-
-        # Ensure small files (e.g. 0.6 MB books) split cleanly across all workers.
-        file_size = os.path.getsize(path)
-        eff_chunk = (
-            min(requested_chunk, max(32 * 1024, file_size // max(workers, 1)))
-            if file_size > 0
-            else requested_chunk
-        )
-
-        t_part_start = time.perf_counter()
-        chunks = compute_chunks(path, eff_chunk)
-        t_after_part = time.perf_counter()
-
-        total: Counter[str] = Counter()
-        chunk_records: list[dict] = []
-        for partial_counts, seconds, pid in pool.imap_unordered(
-            map_chunk, build_tasks(path, chunks, mode), chunksize=1
-        ):
-            total.update(partial_counts)
-            chunk_records.append({"pid": pid, "seconds": seconds})
-        t_after_mr = time.perf_counter()
-
-        total = sort_by_frequency(total)
-        t_end = time.perf_counter()
-
-        # Report warm-pool execution time (excluding one-time cold pool spawn).
-        par_timings = {
-            "pool_startup": max(0.0, t_part_start - t_after_startup),
-            "partition": t_after_part - t_part_start,
-            "map_reduce": t_after_mr - t_after_part,
-            "pool_shutdown": 0.0,
-            "sort": t_end - t_after_mr,
-            "total": t_end - t_part_start,
-        }
-        stats = {
-            "workers": workers,
-            "mode": mode,
-            "chunk_size": eff_chunk,
-            "num_chunks": len(chunks),
-            "chunk_records": chunk_records,
-            "per_worker": summarize_workers(chunk_records),
-            "warning": None,
-        }
+        total, par_timings, stats = parallel_count(path, workers, eff_chunk, mode)
 
     return {"seq": seq_counts, "t_seq": seq_timings["total_time"], "par": total,
             "timings": par_timings, "stats": stats, **settings}
