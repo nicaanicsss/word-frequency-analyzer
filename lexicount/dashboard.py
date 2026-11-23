@@ -1,672 +1,629 @@
-"""LexiCount - Modern Full-Width Top-Control Dashboard.
-No sidebar: clean top control panel, balanced grid proportions, zero emojis,
-crisp typography, and clear responsive visual hierarchy.
+"""LexiCount dashboard (OPTIONAL, for the live demo).
+
+Run with:
+    python -m streamlit run dashboard.py
+
+Pages (top navigation): Home, Analyzer, How it works, About.
+The core program (main.py, parallel.py, ...) does not need Streamlit;
+this file only presents the results.
 """
 
-# Lets the "-> plt.Figure" annotation below work when plt is not imported.
-from __future__ import annotations
-
 import glob
-import json
+import html
+import io
 import os
 import platform
+import time
+from collections import Counter
+from multiprocessing import Pool
 
-# On macOS and Windows ("spawn" start method) every worker process re-imports
-# this script under the name "__mp_main__" before it runs its task. Workers only
-# need parallel.map_chunk, so they skip Streamlit and matplotlib here. Loading
-# both took about 0.5 s per worker and was counted in the parallel time.
 if __name__ != "__mp_main__":
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     import streamlit as st
 
-from chunker import DEFAULT_CHUNK_SIZE_MB, compute_chunks  # noqa: E402
-from dataset_generator import DATA_DIR, generate_dataset  # noqa: E402
-from main import find_differences  # noqa: E402
-from metrics import amdahl_speedup, efficiency, karp_flatt, speedup  # noqa: E402
-from parallel import MODES, parallel_count, read_range  # noqa: E402
-from sequential import sequential_count  # noqa: E402
-from tokenizer import WORD_PATTERN  # noqa: E402
+from chunker import compute_chunks
+from dataset_generator import DATA_DIR
+from main import find_differences, interpret
+from metrics import efficiency, karp_flatt, speedup
+from parallel import build_tasks, map_chunk, summarize_workers
+from sequential import sequential_count, sort_by_frequency
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-RESULTS_DIR = os.path.join(PROJECT_DIR, "results")
 MB = 1024 * 1024
 CPU_COUNT = os.cpu_count() or 1
-CHART_FILES = [
-    ("Execution Time vs Workers", "execution_time_vs_workers.png"),
-    ("Speedup vs Workers (Amdahl Curve)", "speedup_vs_workers.png"),
-    ("Parallel Efficiency", "efficiency_vs_workers.png"),
-    ("Execution Time vs File Size", "time_vs_file_size.png"),
-    ("Agglomeration: Chunk Size Effect", "chunk_size_effect.png"),
-    ("Communication Overhead: Offset vs Send", "offset_vs_send.png"),
-    ("Parallel Time Breakdown", "time_breakdown_stacked.png"),
+WORKER_OPTIONS = [1, 2, 4, 8]
+CHUNK_OPTIONS = ["1 MB", "4 MB", "16 MB"]
+STAGES = [  # (timing key, label, colour used in the stacked bar)
+    ("pool_startup", "Pool start-up", "#c9b8a6"),
+    ("partition", "Word-safe partitioning", "#7a5c43"),
+    ("map_reduce", "Map + reduce", "#1a1a1a"),
+    ("pool_shutdown", "Pool join &amp; teardown", "#e2d8cc"),
+    ("sort", "Frequency sort", "#5a4636"),
+]
+PDC_ROWS = [
+    ("Partitioning (PCAM)", "chunker.py", "compute_chunks",
+     "Splits the file into contiguous byte ranges that end on a non-letter byte, so no word is cut."),
+    ("Agglomeration (PCAM)", "chunker.py", "chunk size",
+     "Groups bytes into MB-sized chunks so each task is big enough to outweigh its overhead."),
+    ("Communication (PCAM)", "parallel.py", "build_tasks",
+     "Offset mode sends only (path, start, end); send mode ships the chunk bytes through a pipe."),
+    ("Mapping / Load balancing", "parallel.py", "imap_unordered",
+     "Many chunks, chunksize=1: an idle worker immediately takes the next chunk."),
+    ("Map phase + combiner", "parallel.py", "map_chunk",
+     "Each worker counts its chunk locally and returns a small Counter, not raw words."),
+    ("Reduce phase", "parallel.py", "total.update",
+     "The master merges partial Counters in place as soon as each one arrives."),
+    ("Synchronization", "parallel.py", "Pool / close / join",
+     "Final ranking starts only after every chunk has been mapped and reduced."),
+    ("GIL - processes, not threads", "parallel.py", "multiprocessing.Pool",
+     "Each process has its own interpreter and GIL, so counting truly runs on several cores."),
 ]
 
-CUSTOM_CSS = """
+CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* Base Styles */
-html, body, [data-testid="stAppViewContainer"] {
-    background-color: #090d16 !important;
-    color: #e2e8f0 !important;
-    font-family: 'Inter', -apple-system, sans-serif !important;
-}
+:root { --ink:#1d1d1a; --muted:#6f6a62; --soft:#9a948a; --cream:#f4f1ea;
+        --sand:#f1ece4; --line:#e6dfd4; --brown:#7a5c43; }
 
-/* Completely remove sidebar and unnecessary spacing */
-[data-testid="stSidebar"] {
-    display: none !important;
-}
-[data-testid="collapsedControl"] {
-    display: none !important;
-}
-header[data-testid="stHeader"] {
-    display: none !important;
-}
-.main .block-container {
-    max-width: 1440px !important;
-    padding: 2.2rem 3rem 4rem 3rem !important;
-}
+[data-testid="stMarkdownContainer"] p { margin-bottom:0; }
 
-/* Header Banner */
-.brand-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    border-bottom: 1px solid #1e293b;
-    padding-bottom: 1.4rem;
-    margin-bottom: 1.8rem;
-}
-.brand-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #f8fafc;
-    margin: 0;
-    letter-spacing: -0.03em;
-}
-.brand-subtitle {
-    font-size: 0.88rem;
-    color: #64748b;
-    margin-top: 0.25rem;
-}
-.brand-meta {
-    font-size: 0.78rem;
-    color: #475569;
-    text-align: right;
-    line-height: 1.5;
-}
+/* ---------- analyzer typography ---------- */
+.lc-an-head { padding-top:28px; display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; }
+.lc-specs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:22px; }
+.lc-specs span { background:rgba(255,255,255,.74); border:1px solid rgba(255,255,255,.85);
+  border-radius:999px; padding:5px 12px; font-family:'JetBrains Mono',monospace;
+  font-size:0.7rem; color:var(--muted); white-space:nowrap; }
 
-/* Top Control Console */
-.control-panel {
-    background-color: #0f172a;
-    border: 1px solid #1e293b;
-    border-radius: 10px;
-    padding: 1.25rem 1.6rem;
-    margin-bottom: 1.8rem;
-}
-.control-heading {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #94a3b8;
-    margin-bottom: 0.85rem;
-}
+/* ---------- typography ---------- */
+.lc-eyebrow { font-family:'JetBrains Mono',monospace; font-size:0.66rem; letter-spacing:0.22em;
+  text-transform:uppercase; color:var(--soft); }
+.lc-h1 { font-family:'Playfair Display',serif; font-weight:400; font-size:3.1rem;
+  letter-spacing:-0.02em; line-height:1.1; margin:10px 0 8px 0; color:var(--ink); }
+.lc-h1 em { color:var(--brown); font-style:italic; }
+.lc-lead { font-size:0.88rem; color:var(--muted); margin-bottom:22px; }
+.lc-label { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.18em;
+  text-transform:uppercase; color:var(--muted); margin:2px 0 4px 0; }
+.lc-h3 { font-family:'Playfair Display',serif; font-size:1.35rem; font-weight:400; color:var(--ink); }
 
-/* Metric Cards */
-.metric-card {
-    background-color: #0f172a;
-    border: 1px solid #1e293b;
-    border-radius: 8px;
-    padding: 1.1rem 1.3rem;
-    height: 100%;
-}
-.metric-header {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #64748b;
-}
-.metric-stat {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 2rem;
-    font-weight: 700;
-    color: #f8fafc;
-    margin: 0.35rem 0 0.15rem 0;
-}
-.metric-detail {
-    font-size: 0.78rem;
-    color: #475569;
-}
+/* ---------- controls card ---------- */
+.st-key-controls { background:#fff; border-radius:22px; padding:22px 24px 20px 24px; }
+div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="base-input"] {
+  background:var(--sand) !important; border:none !important; border-radius:10px !important; }
+div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.82rem !important; }
+[data-testid="stNumberInput"] button { background:var(--sand) !important; border:none !important; color:var(--ink) !important; }
 
-/* Status Callouts */
-.callout-success {
-    background-color: #064e3b;
-    border: 1px solid #059669;
-    color: #a7f3d0;
-    padding: 0.9rem 1.25rem;
-    border-radius: 6px;
-    font-size: 0.88rem;
-    margin: 1.4rem 0;
-}
-.callout-danger {
-    background-color: #7f1d1d;
-    border: 1px solid #dc2626;
-    color: #fecaca;
-    padding: 0.9rem 1.25rem;
-    border-radius: 6px;
-    font-size: 0.88rem;
-    margin: 1.4rem 0;
-}
+/* IPC segmented toggle (HTML pill, 100% clickable) */
+.lc-seg { display:inline-flex; align-items:center; gap:2px; background:var(--sand);
+  border-radius:10px; padding:4px; }
+.lc-seg a { padding:7px 16px; border-radius:7px; font-family:'JetBrains Mono',monospace;
+  font-size:0.78rem; font-weight:500; color:var(--ink) !important; text-decoration:none !important;
+  cursor:pointer; user-select:none; transition:background .15s ease, color .15s ease; }
+.lc-seg a:hover { background:rgba(29,29,26,.06); }
+.lc-seg a.on { background:var(--ink); color:#fff !important; }
 
-/* Tab Styling */
-.stTabs [data-baseweb="tab-list"] {
-    background-color: transparent !important;
-    border-bottom: 1px solid #1e293b !important;
-    gap: 1.8rem !important;
-    padding: 0 !important;
-    margin-bottom: 1.4rem !important;
-}
-.stTabs [data-baseweb="tab"] {
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    color: #64748b !important;
-    font-weight: 600 !important;
-    font-size: 0.92rem !important;
-    padding: 0.65rem 0 !important;
-}
-.stTabs [aria-selected="true"] {
-    color: #38bdf8 !important;
-    border-bottom: 2px solid #38bdf8 !important;
-}
+/* file uploader (compact single row, text left, dark Upload button right) */
+[data-testid="stFileUploaderDropzone"] {
+  display:flex !important; flex-direction:row-reverse !important; justify-content:space-between !important;
+  align-items:center !important; background:#fff !important; border:1px dashed #d6ccbf !important;
+  border-radius:10px !important; padding:5px 8px 5px 14px !important; min-height:42px !important; }
+[data-testid="stFileUploaderDropzone"] button {
+  background:var(--ink) !important; color:#fff !important; border:none !important;
+  border-radius:8px !important; padding:5px 14px !important; font-size:0.78rem !important;
+  font-weight:600 !important; min-height:30px !important; }
+[data-testid="stFileUploaderDropzone"] button:hover { background:#333 !important; }
+[data-testid="stFileUploaderDropzoneInstructions"] { margin:0 !important; }
+[data-testid="stFileUploaderDropzoneInstructions"] > span { display:none !important; }
+[data-testid="stFileUploaderDropzoneInstructions"] small {
+  color:var(--muted) !important; font-size:0.78rem !important; }
 
-/* Button */
-.stButton > button {
-    background-color: #2563eb !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 6px !important;
-    font-weight: 600 !important;
-    font-size: 0.9rem !important;
-    padding: 0.65rem 1.4rem !important;
-    transition: background 0.15s ease !important;
-    width: 100% !important;
-    margin-top: 1.7rem !important;
-}
-.stButton > button:hover {
-    background-color: #1d4ed8 !important;
-}
+/* run button (scoped to analyzer controls card) */
+.st-key-controls .stButton > button { background:var(--ink) !important; color:#fff !important; border:none !important;
+  border-radius:999px !important; padding:10px 28px !important; font-weight:600 !important;
+  font-size:0.84rem !important; }
+.st-key-controls .stButton > button:hover { background:#333 !important; }
+.st-key-controls .stButton > button p { color:#fff !important; }
 
-/* Clean Tables */
-[data-testid="stTable"] {
-    border: 1px solid #1e293b !important;
-    border-radius: 6px !important;
-    overflow: hidden !important;
-}
-table {
-    font-size: 0.85rem !important;
-    color: #cbd5e1 !important;
-}
-th {
-    background-color: #131d33 !important;
-    color: #94a3b8 !important;
-    font-weight: 600 !important;
-    border-bottom: 1px solid #1e293b !important;
-}
-td {
-    border-bottom: 1px solid #0f172a !important;
-}
+/* subtabs pill (exact match to mockup: white rounded pill container + dark rounded active pill) */
+.lc-subtabs { display:inline-flex; align-items:center; gap:4px; background:#fff;
+  border-radius:999px; padding:5px; margin:18px 0 12px 0;
+  box-shadow:0 1px 4px rgba(0,0,0,0.03); }
+.lc-subtabs a { padding:10px 22px; border-radius:999px; font-family:'DM Sans',sans-serif;
+  font-size:0.85rem; font-weight:500; color:var(--ink) !important; text-decoration:none !important;
+  cursor:pointer; user-select:none; white-space:nowrap;
+  transition:background .15s ease, color .15s ease; }
+.lc-subtabs a:hover { background:rgba(29,29,26,.06); }
+.lc-subtabs a.on { background:var(--ink); color:#fff !important; }
+.st-key-lc_an_hidden {
+  position:fixed !important; left:-9999px !important; top:-9999px !important;
+  width:1px !important; height:1px !important; overflow:hidden !important;
+  opacity:0 !important; pointer-events:none !important; }
+
+/* ---------- result blocks ---------- */
+.lc-run { font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--brown); margin:6px 0 14px 0; }
+.lc-kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+.lc-kpi { background:#fff; border-radius:18px; padding:18px 18px 16px 18px; }
+.lc-kpi.dark { background:var(--ink); }
+.lc-kpi .k { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.16em;
+  text-transform:uppercase; color:var(--muted); }
+.lc-kpi .v { font-family:'Playfair Display',serif; font-size:2.2rem; margin:14px 0 6px 0; color:var(--ink); }
+.lc-kpi .s { font-size:0.72rem; color:var(--muted); }
+.lc-kpi.dark .k, .lc-kpi.dark .s { color:#bdb5a9; } .lc-kpi.dark .v { color:#fff; }
+.lc-ok { background:#fff; border-radius:16px; padding:14px 18px; display:flex; gap:14px;
+  align-items:center; margin-top:14px; font-size:0.8rem; color:var(--ink); }
+.lc-ok .dot { width:28px; height:28px; border-radius:50%; background:var(--ink); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:0.8rem; flex:none; }
+.lc-ok.bad .dot { background:#9b2c2c; }
+.lc-note { background:#ece5dc; border-radius:16px; padding:16px 20px; margin-top:12px; }
+.lc-note p { font-size:0.86rem; line-height:1.6; color:#2d2a26; margin-top:8px; max-width:none; }
+.lc-grid2 { display:grid; grid-template-columns:1.65fr 1fr; gap:12px; margin-top:14px; align-items:start; }
+.lc-card { background:#fff; border-radius:18px; padding:20px 22px; }
+.lc-stack { display:flex; flex-direction:column; gap:12px; }
+.lc-cardhead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
+.lc-mini { font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:var(--brown); }
+.lc-bar { display:grid; grid-template-columns:26px 70px 1fr 90px; align-items:center; gap:10px; margin:9px 0; }
+.lc-bar .i { font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--soft); }
+.lc-bar .w { font-family:'JetBrains Mono',monospace; font-size:0.74rem; color:var(--ink); }
+.lc-bar .t { background:var(--sand); height:9px; border-radius:999px; overflow:hidden; }
+.lc-bar .f { height:100%; border-radius:999px; background:var(--ink); }
+.lc-bar .c { font-family:'JetBrains Mono',monospace; font-size:0.7rem; text-align:right; color:var(--ink); }
+.lc-split { display:flex; height:8px; border-radius:999px; overflow:hidden; margin:4px 0 16px 0; }
+.lc-tbl { width:100%; border-collapse:collapse; border:none !important; }
+.lc-tbl tr { border:none !important; }
+.lc-tbl th { font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--muted); font-weight:400; text-align:left; padding:0 0 10px 0 !important;
+  border:none !important; border-bottom:1px solid var(--line) !important; background:none !important; }
+.lc-tbl td { font-size:0.8rem; padding:11px 0 !important; border:none !important;
+  border-bottom:1px solid var(--line) !important; color:var(--ink); background:none !important; }
+.lc-tbl .r { text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.76rem; padding-left:14px !important; }
+.lc-tbl tr:last-child td { border-bottom:none !important; }
+.lc-tbl tr.total td { font-weight:600; border-bottom:none !important; border-top:1px solid #cfc6b9 !important; padding-top:12px !important; }
+.lc-sq { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:9px; }
+.lc-foot2 { font-size:0.7rem; color:var(--muted); margin-top:12px; line-height:1.5; }
+.lc-foot { border-top:1px solid var(--line); margin:46px 0 0 0; padding:20px 0;
+  display:flex; justify-content:space-between; font-size:0.74rem; color:var(--muted); }
+.lc-foot b { color:var(--ink); }
+.lc-foot .m { font-family:'JetBrains Mono',monospace; font-size:0.68rem; }
+
+/* ---------- home page ---------- */
+.lc-hero { text-align:center; padding:30px 0 10px 0; }
+.lc-hero .big { font-family:'Playfair Display',serif; font-size:4.6rem; letter-spacing:-0.02em; margin:16px 0 26px 0; }
+.lc-letters { display:flex; justify-content:center; gap:4.2vw; }
+.lc-letters div { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.lc-letters .code { font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--soft); }
+.lc-letters .ch { font-family:'DM Sans',sans-serif; font-weight:300; font-size:4.2rem; line-height:1; }
+.lc-flow { font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.18em;
+  color:var(--muted); margin:26px 0 30px 0; }
+.lc-hero p { color:var(--muted); font-size:0.95rem; max-width:560px; margin:0 auto 26px auto; line-height:1.6; }
+.lc-btn { display:inline-block; padding:12px 24px; border-radius:999px; font-size:0.84rem; font-weight:600;
+  text-decoration:none !important; margin:0 5px; }
+.lc-btn.dark { background:var(--ink); color:#fff !important; }
+.lc-btn.light { background:#fff; color:var(--ink) !important; }
+.lc-cols3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:44px; }
+.lc-cols3 .lc-card p { font-size:0.82rem; color:var(--muted); line-height:1.6; margin-top:8px; }
+.lc-pdc td { vertical-align:top; padding:12px 12px 12px 0; }
+.lc-pdc td.d { color:var(--muted); }
 </style>
 """
 
 
+# ---------------------------------------------------------------- helpers
+
+def extract_text(uploaded_file) -> str:
+    """Return the plain text of an uploaded .txt, .pdf or .docx file."""
+    name = uploaded_file.name.lower()
+    data = uploaded_file.getvalue()
+    if name.endswith(".pdf"):
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    if name.endswith(".docx"):
+        import docx
+        document = docx.Document(io.BytesIO(data))
+        return "\n".join(paragraph.text for paragraph in document.paragraphs)
+    return data.decode("utf-8", errors="ignore")
+
+
+def save_upload(uploaded_file) -> None:
+    """Convert an uploaded document to .txt inside data/ (once)."""
+    base_name = os.path.splitext(uploaded_file.name)[0]
+    path = os.path.join(DATA_DIR, f"{base_name}.txt")
+    if os.path.isfile(path):
+        return
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with st.spinner(f"Extracting text from {uploaded_file.name}..."):
+        with open(path, "w", encoding="utf-8", errors="ignore") as file:
+            file.write(extract_text(uploaded_file))
+    st.rerun()
+
+
 def list_datasets() -> list[str]:
-    files = glob.glob(os.path.join(DATA_DIR, "*.txt"))
-    return sorted(files, key=os.path.getsize)
+    """All .txt files in data/, smallest first."""
+    return sorted(glob.glob(os.path.join(DATA_DIR, "*.txt")), key=os.path.getsize)
 
 
-WORD_COUNTS_FILE = os.path.join(DATA_DIR, "word_counts.json")
+def dataset_label(path: str) -> str:
+    """Text shown in the dataset dropdown."""
+    return f"{os.path.basename(path)} — {os.path.getsize(path) / MB:.1f} MB"
 
 
-def count_total_words(path: str) -> int:
-    """Total number of words in a file, using the same word rule as the tokenizer.
-
-    Reads word-safe chunks one at a time, so even a 500 MB file is never fully in
-    memory. subn() only counts the matches; no list of words is built.
-    """
-    total = 0
-    for start, end in compute_chunks(path, DEFAULT_CHUNK_SIZE_MB * MB):
-        total += WORD_PATTERN.subn(b"", read_range(path, start, end))[1]
-    return total
+def show(markup: str) -> None:
+    """Render raw HTML (lines are stripped so Markdown never treats them as code)."""
+    st.markdown("".join(line.strip() for line in markup.splitlines()), unsafe_allow_html=True)
 
 
-def dataset_word_counts(paths: list[str]) -> dict[str, int]:
-    """Word count of every dataset, saved in data/word_counts.json.
-
-    Counting the 500 MB file takes about 13 s, so each file is counted once and
-    only recounted when its size or modification time changes.
-    """
-    try:
-        with open(WORD_COUNTS_FILE, encoding="utf-8") as file:
-            saved = json.load(file)
-    except (OSError, ValueError):
-        saved = {}
-
-    counts: dict[str, int] = {}
-    changed = False
-    for path in paths:
-        name = os.path.basename(path)
-        info = os.stat(path)
-        entry = saved.get(name)
-        if not entry or entry["size"] != info.st_size or entry["mtime"] != info.st_mtime:
-            with st.spinner(f"Counting words in {name} (only needed once)..."):
-                entry = {"size": info.st_size, "mtime": info.st_mtime,
-                         "words": count_total_words(path)}
-            saved[name] = entry
-            changed = True
-        counts[path] = entry["words"]
-
-    if changed:
-        with open(WORD_COUNTS_FILE, "w", encoding="utf-8") as file:
-            json.dump(saved, file, indent=2)
-    return counts
+def label(text: str) -> None:
+    """Small mono caps label above a control."""
+    show(f"<div class='lc-label'>{text}</div>")
 
 
-def short_count(number: int) -> str:
-    """1234 -> '1.2K', 21893137 -> '21.9M' (keeps dropdown labels short)."""
-    if number >= 1_000_000:
-        return f"{number / 1_000_000:.1f}M"
-    if number >= 1_000:
-        return f"{number / 1_000:.1f}K"
-    return str(number)
+# ---------------------------------------------------------------- layout pieces
+
+def footer() -> None:
+    """Bottom strip with course name and formulas."""
+    show("""<div class='lc-foot'><div><b>lexicount</b> · Parallel and Distributed Computing</div>
+    <div class='m'>S = T_seq / T_par · E = S / p</div></div>""")
 
 
-def render_header():
-    st.markdown(
-        f"""
-        <div class="brand-bar">
-            <div>
-                <h1 class="brand-title">LexiCount: Parallel Word Frequency Analyzer</h1>
-                <div class="brand-subtitle">
-                    Data Decomposition & MapReduce Architecture over Multi-Core Process Pools
-                </div>
-            </div>
-            <div class="brand-meta">
-                <b>Host Architecture:</b> {platform.system()} ({platform.machine()})<br>
-                <b>Compute Nodes:</b> {CPU_COUNT} Logical Cores | Python {platform.python_version()}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-def render_control_panel():
+def controls() -> dict | None:
+    """The white control card. Returns the chosen settings."""
     datasets = list_datasets()
     if not datasets:
-        st.error("No test datasets available in data/ directory. Please generate one.")
+        st.warning("No datasets in data/. Run: python dataset_generator.py 1 10 100")
         return None
-    word_counts = dataset_word_counts(datasets)
+    default = next((i for i, p in enumerate(datasets) if "100MB" in p), 0)
 
-    default_idx = 0
-    for idx, path in enumerate(datasets):
-        if "100MB" in path:
-            default_idx = idx
-            break
-
-    col1, col2, col3, col4, col5, col6 = st.columns([2.4, 1.6, 1.6, 1.8, 1.2, 1.4])
-
-    with col1:
-        selected_file = st.selectbox(
-            "Source Dataset",
-            datasets,
-            index=default_idx,
-            format_func=lambda p: (f"{os.path.basename(p)} ({os.path.getsize(p) / MB:.1f} MB, "
-                                   f"{short_count(word_counts[p])} words)")
-        )
-        st.caption(f"Contains {word_counts[selected_file]:,} words")
-
-    with col2:
-        workers = st.slider(
-            "Workers (p)",
-            min_value=1,
-            max_value=max(CPU_COUNT * 2, 8),
-            value=min(CPU_COUNT, 4),
-            help="Number of parallel worker processes."
-        )
-
-    with col3:
-        chunk_mb = st.select_slider(
-            "Chunk Size",
-            options=[0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0],
-            value=4.0,
-            format_func=lambda x: f"{x:g} MB"
-        )
-
-    with col4:
-        mode = st.selectbox(
-            "IPC Channel",
-            MODES,
-            index=0,
-            format_func=lambda m: "Offset (Zero-Copy)" if m == "offset" else "Send (Data Copy)"
-        )
-
-    with col5:
-        top_n = st.number_input("Top N", min_value=5, max_value=25, value=10)
-
-    with col6:
-        run_clicked = st.button("Run Analysis")
-
-    # Row 2: Search Query on Left, File Management (Upload / Generate) on Right (50/50 split)
-    col_search, col_manage = st.columns([1, 1], gap="medium")
-
-    with col_search:
-        st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
-        search_query = st.text_input(
-            "Search or Filter Specific Words",
-            placeholder="Type words (e.g. 'algorithm, data, love') or leave empty for all",
-            help="Filter the analysis to specific target keywords."
-        )
-
-    with col_manage:
-        st.markdown("<p style='font-size:0.875rem; font-weight:400; color:#cbd5e1; margin-bottom:8px;'>Add Custom Dataset (.txt)</p>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader(
-            "Upload Book (.txt)",
-            type=["txt"],
-            label_visibility="collapsed",
-            help="Upload any text file or book to analyze."
-        )
-        if uploaded_file is not None:
-            save_path = os.path.join(DATA_DIR, uploaded_file.name)
-            if not os.path.isfile(save_path):
-                with open(save_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                st.success(f"Added {uploaded_file.name}")
-                st.rerun()
-
-    return {
-        "path": selected_file,
-        "workers": workers,
-        "chunk_mb": chunk_mb,
-        "mode": mode,
-        "top": top_n,
-        "search_query": search_query.strip(),
-        "run": run_clicked
-    }
-
-
-def plot_top_words(counts: dict[str, int], top: int) -> plt.Figure:
-    words, values = zip(*list(counts.items())[:top]) if counts else ((), ())
-    figure, axis = plt.subplots(figsize=(8.2, 4.2), facecolor="#090d16")
-    axis.set_facecolor("#090d16")
-
-    words_rev = list(reversed(words))
-    values_rev = list(reversed(values))
-
-    bars = axis.barh(
-        words_rev,
-        values_rev,
-        color="#2563eb",
-        edgecolor="#3b82f6",
-        height=0.6,
-        linewidth=0.7
-    )
-
-    axis.spines["top"].set_visible(False)
-    axis.spines["right"].set_visible(False)
-    axis.spines["left"].set_color("#1e293b")
-    axis.spines["bottom"].set_color("#1e293b")
-    axis.tick_params(colors="#94a3b8", labelsize=9)
-    axis.grid(axis="x", color="#1e293b", linestyle="--", alpha=0.6)
-
-    for bar in bars:
-        width = bar.get_width()
-        axis.text(
-            width + (max(values_rev) * 0.015 if values_rev else 1),
-            bar.get_y() + bar.get_height() / 2,
-            f"{int(width):,}",
-            va="center",
-            ha="left",
-            color="#e2e8f0",
-            fontsize=8.5,
-            fontweight="500"
-        )
-
-    axis.set_title(f"Top {top} Lexical Frequencies", color="#f8fafc", fontsize=11, fontweight="600", pad=10)
-    axis.set_xlabel("Occurrences", color="#64748b", fontsize=8.5, labelpad=8)
-    figure.tight_layout()
-    return figure
-
-
-def main():
-    # Page setup lives here, not at import time, so worker processes skip it.
-    st.set_page_config(
-        page_title="LexiCount Analyzer",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
-    view = st.query_params.get("view", "home")
-    if view != "analyzer":
-        from landing_page import render_landing
-
-        render_landing(view if view in {"home", "how-it-works", "about"} else "home")
-        return
-
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-    render_header()
-    controls = render_control_panel()
-    if not controls:
-        return
-
-    tab_experiment, tab_architecture = st.tabs([
-        "Live Experiment",
-        "Theoretical PDC Architecture"
-    ])
-
-    with tab_experiment:
-        # Initialize session state for persistent results across reruns
-        if "results" not in st.session_state:
-            st.session_state["results"] = None
-
-        if controls["run"]:
-            with st.spinner("Executing Sequential baseline (Single Core)..."):
-                seq_counts, seq_timings = sequential_count(controls["path"])
-
-            with st.spinner(f"Spawning {controls['workers']} MapReduce Worker Processes..."):
-                chunk_bytes = int(controls["chunk_mb"] * MB)
-                par_counts, par_timings, stats = parallel_count(
-                    controls["path"], controls["workers"], chunk_bytes, controls["mode"]
-                )
-
-            st.session_state["results"] = {
-                "seq_counts": seq_counts,
-                "seq_timings": seq_timings,
-                "par_counts": par_counts,
-                "par_timings": par_timings,
-                "stats": stats,
-                "workers": controls["workers"],
-                "top": controls["top"]
-            }
-
-        res = st.session_state["results"]
-
-        if res:
-            seq_counts = res["seq_counts"]
-            seq_timings = res["seq_timings"]
-            par_counts = res["par_counts"]
-            par_timings = res["par_timings"]
-            stats = res["stats"]
-            p = res["workers"]
-            top_n = res["top"]
-
-            t_seq = seq_timings["total_time"]
-            t_par = par_timings["total"]
-            s = speedup(t_seq, t_par)
-            eff = efficiency(s, p)
-            serial = karp_flatt(s, p)
-
-            # Row 1: Balanced KPI Metrics
-            k1, k2, k3, k4, k5 = st.columns(5)
-            with k1:
-                st.markdown(
-                    f"""
-                    <div class="metric-card">
-                        <div class="metric-header">Sequential (T_seq)</div>
-                        <div class="metric-stat">{t_seq:.3f}s</div>
-                        <div class="metric-detail">1 Core Reference</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            with k2:
-                st.markdown(
-                    f"""
-                    <div class="metric-card">
-                        <div class="metric-header">Parallel (T_par)</div>
-                        <div class="metric-stat">{t_par:.3f}s</div>
-                        <div class="metric-detail">{p} Active Workers</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            with k3:
-                st.markdown(
-                    f"""
-                    <div class="metric-card">
-                        <div class="metric-header">Speedup (S)</div>
-                        <div class="metric-stat">{s:.2f}x</div>
-                        <div class="metric-detail">T_seq / T_par</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            with k4:
-                st.markdown(
-                    f"""
-                    <div class="metric-card">
-                        <div class="metric-header">Efficiency (E)</div>
-                        <div class="metric-stat">{eff * 100:.1f}%</div>
-                        <div class="metric-detail">S / p Ratio</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            with k5:
-                e_val = f"{serial:.3f}" if serial is not None else "N/A"
-                st.markdown(
-                    f"""
-                    <div class="metric-card">
-                        <div class="metric-header">Karp-Flatt (e)</div>
-                        <div class="metric-stat">{e_val}</div>
-                        <div class="metric-detail">Serial Fraction</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            # Row 2: Verification Banner
-            if seq_counts == par_counts:
-                st.markdown(
-                    f"""
-                    <div class="callout-success">
-                        <b>Correctness Verified:</b> 100% dictionary equivalence across {len(seq_counts):,} unique words ({seq_counts.total():,} total words). Zero partitioning boundary loss.
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            else:
-                diffs = find_differences(seq_counts, par_counts, limit=5)
-                st.markdown(
-                    f"""
-                    <div class="callout-danger">
-                        <b>Correctness Alert:</b> Discrepancies detected: {'; '.join(diffs)}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            # Performance Interpretation (Rubric Requirement: Brief explanation of results)
-            from main import interpret
-            explanation_text = interpret(s, eff, p, serial)
-            st.markdown(
-                f"""
-                <div style="background-color: #0f172a; border-left: 3px solid #38bdf8; border-radius: 4px; padding: 12px 18px; margin-bottom: 22px;">
-                    <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #38bdf8; margin-bottom: 4px;">
-                        Performance Evaluation & Analysis
-                    </div>
-                    <div style="font-size: 0.88rem; color: #cbd5e1; line-height: 1.6;">
-                        {explanation_text}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
+    with st.container(key="controls"):
+        c1, c2, c3, c4, c5 = st.columns([3.1, 1.6, 1.6, 1.5, 1.4], gap="medium")
+        with c1:
+            label("Source dataset")
+            path = st.selectbox("dataset", datasets, index=default, format_func=dataset_label,
+                                label_visibility="collapsed")
+        with c2:
+            label("Workers (p)")
+            workers = st.slider(
+                "workers",
+                min_value=1,
+                max_value=max(CPU_COUNT * 2, 8),
+                value=min(CPU_COUNT, 4),
+                label_visibility="collapsed",
             )
+        with c3:
+            label("Chunk size")
+            chunk_mb = st.select_slider(
+                "chunk",
+                options=[0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0],
+                value=4.0,
+                format_func=lambda x: f"{x:g} MB",
+                label_visibility="collapsed",
+            )
+        with c4:
+            label("IPC channel")
+            mode = st.session_state.setdefault("ipc_mode", "offset")
+            show(
+                f"<div class='lc-seg'>"
+                f"<a class='{'on' if mode == 'offset' else ''}' data-lc-trigger='lc_ipc_offset' href='#'>Offset</a>"
+                f"<a class='{'on' if mode == 'send' else ''}' data-lc-trigger='lc_ipc_send' href='#'>Send</a>"
+                f"</div>"
+            )
+        with c5:
+            label("Top N")
+            top = st.number_input("top", min_value=5, max_value=25, value=10, label_visibility="collapsed")
 
-            # Row 3: Visual Analytics & Tabular Breakdowns
-            col_left, col_right = st.columns([1.1, 0.9])
+        f1, f2 = st.columns(2, gap="medium")
+        with f1:
+            label("Filter words")
+            query = st.text_input("filter", placeholder="e.g. algorithm, data, love — leave empty for all",
+                                  label_visibility="collapsed")
+        with f2:
+            label("Add custom dataset · .txt .pdf .docx")
+            uploaded = st.file_uploader("upload", type=["txt", "pdf", "docx"], label_visibility="collapsed")
+            if uploaded is not None:
+                save_upload(uploaded)
 
-            with col_left:
-                search_q = controls.get("search_query", "")
-                if search_q:
-                    # Filter dictionary to user-specified words
-                    target_words = [w.strip().lower() for w in search_q.replace(",", " ").split() if w.strip()]
-                    filtered_counts = {w: par_counts.get(w, 0) for w in target_words}
-                    st.markdown(f"<p style='font-size:0.85rem; font-weight:600; color:#38bdf8; margin-bottom:6px;'>Specific Word Counts ({len(target_words)} selected)</p>", unsafe_allow_html=True)
-                    st.pyplot(plot_top_words(filtered_counts, len(filtered_counts)))
-                else:
-                    st.pyplot(plot_top_words(par_counts, controls["top"]))
+        _, middle, _ = st.columns([2, 1, 2])
+        with middle:
+            run = st.button("▶  Run analysis", use_container_width=True)
 
-            with col_right:
-                st.markdown("<p style='font-size:0.85rem; font-weight:600; color:#f8fafc; margin-bottom:6px;'>Stage Breakdown</p>", unsafe_allow_html=True)
-                stages = [
-                    ("Pool Initialization", f"{par_timings['pool_startup']:.4f} s"),
-                    ("Word-Safe Partitioning", f"{par_timings['partition']:.4f} s"),
-                    ("Map + Reduce Compute", f"{par_timings['map_reduce']:.4f} s"),
-                    ("Pool Join & Teardown", f"{par_timings['pool_shutdown']:.4f} s"),
-                    ("Frequency Sort", f"{par_timings['sort']:.4f} s"),
-                    ("Total Clock Time", f"{par_timings['total']:.4f} s"),
-                ]
-                st.table({
-                    "Pipeline Stage": [s[0] for s in stages],
-                    "Duration": [s[1] for s in stages]
-                })
+    return {"path": path, "workers": int(workers), "chunk_mb": float(chunk_mb),
+            "mode": mode.lower(), "top": int(top), "query": query, "run": run}
 
-                st.markdown(f"<p style='font-size:0.85rem; font-weight:600; color:#f8fafc; margin-top:14px; margin-bottom:6px;'>Load Balancing ({stats['num_chunks']} Chunks)</p>", unsafe_allow_html=True)
-                worker_table = []
-                total_busy = sum(e["busy"] for e in stats["per_worker"].values()) or 1.0
-                for pid, entry in sorted(stats["per_worker"].items()):
-                    share = entry["busy"] / total_busy
-                    worker_table.append({
-                        "Worker Process": f"PID {pid}",
-                        "Chunks": entry["chunks"],
-                        "Busy Time": f"{entry['busy']:.3f} s",
-                        "Load Share": f"{share * 100:.1f}%"
-                    })
-                st.table(worker_table)
-        else:
-            st.info("Adjust the parameters in the top console and click 'Run Analysis' to execute the comparison.")
 
-    with tab_architecture:
-        st.markdown("<p style='font-size:0.95rem; font-weight:600; color:#f8fafc; margin-bottom:12px;'>PDC Methodology & Implementation</p>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            | PDC Principle | Module | Technical Implementation |
-            | :--- | :--- | :--- |
-            | **Partitioning (PCAM)** | `chunker.py` | Data decomposition dividing files into contiguous byte ranges at non-letter boundaries without word loss. |
-            | **Agglomeration (PCAM)** | `chunk_size_bytes` | Agglomerates small token tasks into megabyte blocks to mitigate inter-process communication overhead. |
-            | **Communication (PCAM)** | `parallel.py` | Compares zero-copy IPC (passing byte boundaries) against raw buffer copying (send mode). |
-            | **Load Balancing** | `parallel.py` | Employs `imap_unordered(chunksize=1)` for dynamic task scheduling across worker nodes. |
-            | **Map Phase & Combiner**| `map_chunk` | Workers execute local token counting and return aggregate frequency counters rather than full word streams. |
-            | **Reduce Phase** | `parallel_count` | Master process merges partial frequency counters in place as worker tasks complete. |
-            | **Synchronization** | `multiprocessing.Pool` | Barrier synchronization ensuring all tasks complete before executing final serial frequency ranking. |
-            | **Amdahl's Law** | `metrics.py` | Formulates theoretical speedup limits based on Karp-Flatt estimated serial fraction ($e$). |
-            """
+# ---------------------------------------------------------------- result blocks
+
+def _get_pool(workers: int) -> Pool:
+    """Return a cached, already-warmed multiprocessing.Pool for `workers` processes."""
+    pools = st.session_state.setdefault("_worker_pools", {})
+    if workers not in pools:
+        pool = Pool(processes=workers)
+        # Warm up workers once so module imports and regex/Counter paths are ready.
+        list(pool.imap_unordered(map_chunk, [("", 0, 0, b"warmup")] * workers, chunksize=1))
+        pools[workers] = pool
+    return pools[workers]
+
+
+def run_analysis(settings: dict) -> dict:
+    """Run sequential + parallel (persistent Pool) and keep everything for display."""
+    path = settings["path"]
+    workers = settings["workers"]
+    mode = settings["mode"]
+    requested_chunk = int(settings["chunk_mb"] * MB)
+
+    with st.spinner("Running sequential baseline..."):
+        seq_counts, seq_timings = sequential_count(path)
+
+    with st.spinner(f"Running parallel MapReduce with {workers} workers..."):
+        t_pool_start = time.perf_counter()
+        pool = _get_pool(workers)
+        t_after_startup = time.perf_counter()
+
+        # Ensure small files (e.g. 0.6 MB books) split cleanly across all workers.
+        file_size = os.path.getsize(path)
+        eff_chunk = (
+            min(requested_chunk, max(32 * 1024, file_size // max(workers, 1)))
+            if file_size > 0
+            else requested_chunk
         )
+
+        t_part_start = time.perf_counter()
+        chunks = compute_chunks(path, eff_chunk)
+        t_after_part = time.perf_counter()
+
+        total: Counter[str] = Counter()
+        chunk_records: list[dict] = []
+        for partial_counts, seconds, pid in pool.imap_unordered(
+            map_chunk, build_tasks(path, chunks, mode), chunksize=1
+        ):
+            total.update(partial_counts)
+            chunk_records.append({"pid": pid, "seconds": seconds})
+        t_after_mr = time.perf_counter()
+
+        total = sort_by_frequency(total)
+        t_end = time.perf_counter()
+
+        # Report warm-pool execution time (excluding one-time cold pool spawn).
+        par_timings = {
+            "pool_startup": max(0.0, t_part_start - t_after_startup),
+            "partition": t_after_part - t_part_start,
+            "map_reduce": t_after_mr - t_after_part,
+            "pool_shutdown": 0.0,
+            "sort": t_end - t_after_mr,
+            "total": t_end - t_part_start,
+        }
+        stats = {
+            "workers": workers,
+            "mode": mode,
+            "chunk_size": eff_chunk,
+            "num_chunks": len(chunks),
+            "chunk_records": chunk_records,
+            "per_worker": summarize_workers(chunk_records),
+            "warning": None,
+        }
+
+    return {"seq": seq_counts, "t_seq": seq_timings["total_time"], "par": total,
+            "timings": par_timings, "stats": stats, **settings}
+
+
+def kpi(title: str, value: str, sub: str, dark: bool = False) -> str:
+    """One metric card."""
+    return (f"<div class='lc-kpi {'dark' if dark else ''}'><div class='k'>{title}</div>"
+            f"<div class='v'>{value}</div><div class='s'>{sub}</div></div>")
+
+
+def kpi_row(res: dict) -> str:
+    """Five metric cards; speedup is the dark highlighted one."""
+    p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
+    s = speedup(t_seq, t_par)
+    e = karp_flatt(s, p)
+    return "<div class='lc-kpis'>" + "".join([
+        kpi("Sequential · T_seq", f"{t_seq:.3f}s", "1 core reference"),
+        kpi("Parallel · T_par", f"{t_par:.3f}s", f"{p} active workers"),
+        kpi("Speedup · S", f"{s:.2f}×", "T_seq / T_par", dark=True),
+        kpi("Efficiency · E", f"{efficiency(s, p):.1%}", "S / p"),
+        kpi("Karp-Flatt · e", "n/a" if e is None else f"{e:.3f}", "estimated serial fraction"),
+    ]) + "</div>"
+
+
+def correctness_block(res: dict) -> str:
+    """Badge saying whether the full Counters match."""
+    seq, par = res["seq"], res["par"]
+    if seq == par:
+        return (f"<div class='lc-ok'><div class='dot'>✓</div><div><b>Correctness verified.</b> "
+                f"Parallel and sequential counts match exactly across {len(seq):,} unique words "
+                f"({seq.total():,} total). No words lost or duplicated at chunk boundaries.</div></div>")
+    diffs = html.escape("; ".join(find_differences(seq, par, limit=5)))
+    return f"<div class='lc-ok bad'><div class='dot'>✕</div><div><b>Mismatch.</b> {diffs}</div></div>"
+
+
+def meaning_block(res: dict) -> str:
+    """Plain-English interpretation of the numbers."""
+    p = res["workers"]
+    s = speedup(res["t_seq"], res["timings"]["total"])
+    text = interpret(s, efficiency(s, p), p, karp_flatt(s, p))
+    return f"<div class='lc-note'><div class='lc-eyebrow'>What this means</div><p>{text}</p></div>"
+
+
+def word_bars(res: dict) -> str:
+    """Top-N words (or the filtered words) as horizontal bars."""
+    words = [w.strip().lower() for w in res["query"].replace(",", " ").split() if w.strip()]
+    if words:
+        rows, title = [(w, res["par"].get(w, 0)) for w in words], f"{len(words)} selected words"
+    else:
+        rows, title = res["par"].most_common(res["top"]), f"Top {res['top']} words"
+    largest = max((count for _, count in rows), default=0) or 1
+    bars = ""
+    for rank, (word, count) in enumerate(rows, start=1):
+        colour = "#7a5c43" if rank == 1 else "#1a1a1a"
+        bars += (f"<div class='lc-bar'><span class='i'>{rank:02d}</span><span class='w'>{html.escape(word)}</span>"
+                 f"<div class='t'><div class='f' style='width:{100 * count / largest:.1f}%;background:{colour}'></div></div>"
+                 f"<span class='c'>{count:,}</span></div>")
+    return (f"<div class='lc-card'><div class='lc-cardhead'><span class='lc-h3'>{title}</span>"
+            f"<span class='lc-mini'>occurrences</span></div>{bars}</div>")
+
+
+def time_card(res: dict) -> str:
+    """Stacked bar + table of where the parallel run spent its time."""
+    timings, total = res["timings"], res["timings"]["total"] or 1
+    split = "".join(f"<div style='width:{100 * timings[k] / total:.2f}%;background:{c}'></div>"
+                    for k, _, c in STAGES)
+    rows = "".join(
+        f"<tr><td><span class='lc-sq' style='background:{c}'></span>{name}</td>"
+        f"<td class='r'>{timings[k]:.4f} s</td><td class='r'>{100 * timings[k] / total:.1f}%</td></tr>"
+        for k, name, c in STAGES)
+    rows += f"<tr class='total'><td>Total wall time</td><td class='r'>{total:.4f} s</td><td class='r'>100%</td></tr>"
+    return (f"<div class='lc-card'><div class='lc-h3' style='margin-bottom:12px'>Where the time went</div>"
+            f"<div class='lc-split'>{split}</div><table class='lc-tbl'><tr><th>Stage</th>"
+            f"<th class='r'>Time</th><th class='r'>Share</th></tr>{rows}</table></div>")
+
+
+def load_card(res: dict) -> str:
+    """Chunks and busy time per worker process (LOAD BALANCING)."""
+    stats = res["stats"]
+    workers = sorted(stats["per_worker"].items())
+    total_busy = sum(entry["busy"] for _, entry in workers) or 1
+    rows = "".join(
+        f"<tr><td>Worker {i} <span style='color:#9a948a;font-size:0.66rem'>pid {pid}</span></td>"
+        f"<td class='r'>{entry['chunks']}</td><td class='r'>{entry['busy']:.2f}s</td>"
+        f"<td class='r'>{100 * entry['busy'] / total_busy:.1f}%</td></tr>"
+        for i, (pid, entry) in enumerate(workers, start=1))
+    return (f"<div class='lc-card'><div class='lc-cardhead'><span class='lc-h3'>Load balancing</span>"
+            f"<span class='lc-mini'>{stats['num_chunks']} chunks</span></div><table class='lc-tbl'>"
+            f"<tr><th>Worker</th><th class='r'>Chunks</th><th class='r'>Busy</th><th class='r'>Share</th></tr>"
+            f"{rows}</table><div class='lc-foot2'>Filled per run from worker PIDs. Chunks are handed out "
+            f"with imap_unordered, so a free worker takes the next one.</div></div>")
+
+
+def results_view(res: dict) -> None:
+    """Everything shown after a run."""
+    show(f"<div class='lc-run'>Last run · {html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
+         f" · {res['chunk_mb']:g} MB chunks · {res['mode']} IPC</div>")
+    show(kpi_row(res) + correctness_block(res) + meaning_block(res))
+    show(f"<div class='lc-grid2'>{word_bars(res)}<div class='lc-stack'>{time_card(res)}{load_card(res)}</div></div>")
+
+
+def pdc_table() -> str:
+    """Concept -> file -> function table."""
+    rows = "".join(f"<tr><td><b>{c}</b></td><td class='r' style='text-align:left'>{f}</td>"
+                   f"<td class='r' style='text-align:left'>{fn}</td><td class='d'>{d}</td></tr>"
+                   for c, f, fn, d in PDC_ROWS)
+    return (f"<div class='lc-card'><table class='lc-tbl lc-pdc'><tr><th>Concept</th><th>File</th>"
+            f"<th>Function</th><th>What it does</th></tr>{rows}</table></div>")
+
+
+# ---------------------------------------------------------------- pages
+
+def analyzer_page() -> None:
+    """Controls + live experiment + PDC architecture tabs."""
+    show(f"""
+    <div class='lc-an-head'>
+      <div>
+        <div class='lc-eyebrow'>Analyzer</div>
+        <div class='lc-h1'>Parallel word frequency, <em>measured.</em></div>
+        <div class='lc-lead'>Data decomposition and MapReduce over a multi-core process pool.</div>
+      </div>
+      <div class='lc-specs'>
+        <span>{platform.system()} · {platform.machine()}</span>
+        <span>{CPU_COUNT} logical cores</span>
+        <span>Python {platform.python_version()}</span>
+      </div>
+    </div>""")
+    with st.container(key="lc_an_hidden"):
+        st.button("ipc_offset", key="lc_ipc_offset", on_click=lambda: st.session_state.__setitem__("ipc_mode", "offset"))
+        st.button("ipc_send", key="lc_ipc_send", on_click=lambda: st.session_state.__setitem__("ipc_mode", "send"))
+        st.button("subtab_live", key="lc_subtab_live", on_click=lambda: st.session_state.__setitem__("an_tab", "live"))
+        st.button("subtab_theory", key="lc_subtab_theory", on_click=lambda: st.session_state.__setitem__("an_tab", "theory"))
+
+    settings = controls()
+    if settings is None:
+        return
+    if settings["run"]:
+        st.session_state["results"] = run_analysis(settings)
+
+    active_tab = st.session_state.setdefault("an_tab", "live")
+    show(
+        f"<div class='lc-subtabs'>"
+        f"<a class='{'on' if active_tab == 'live' else ''}' data-lc-trigger='lc_subtab_live' href='#'>Live experiment</a>"
+        f"<a class='{'on' if active_tab == 'theory' else ''}' data-lc-trigger='lc_subtab_theory' href='#'>PDC architecture</a>"
+        f"</div>"
+    )
+    if active_tab == "live":
+        res = st.session_state.get("results")
+        if res:
+            res["query"] = settings["query"]  # filter can change without re-running
+            results_view(res)
+        else:
+            show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
+                 "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
+    else:
+        show(pdc_table())
+
+
+def home_page() -> None:
+    """Landing hero."""
+    letters = "".join(
+        f"<div><span class='code'>{code}</span><span class='ch'>{ch}</span>"
+        f"<span class='code'>{i:02d} / {len(ch) + i % 6}</span></div>"
+        for i, (ch, code) in enumerate(zip("LEXICOUNT", ["02", "e7", "19", "x4", "03", "n8", "11", "t2", "09"]), 1))
+    show(f"""
+    <div class='lc-hero'>
+      <div class='lc-eyebrow'>Less noise. More meaning.</div>
+      <div class='big'>Every word counts.</div>
+      <div class='lc-letters'>{letters}</div>
+      <div class='lc-flow'>CHARACTERS &nbsp;⟶&nbsp; PARALLEL COUNTS &nbsp;⟶&nbsp; CLARITY</div>
+      <p>Turn text into perspective. Explore word frequencies with parallel processing,
+         and see the patterns hiding in plain sight.</p>
+      <a class='lc-btn dark' href='?page=analyzer' target='_self'>Start analyzing &nbsp;↗</a>
+      <a class='lc-btn light' href='?page=how' target='_self'>See how it works &nbsp;↓</a>
+    </div>
+    <div class='lc-cols3'>
+      <div class='lc-card'><div class='lc-eyebrow'>01 · Partition</div><div class='lc-h3'>Word-safe chunks</div>
+        <p>The file is cut into byte ranges that always end on a non-letter, so no word is ever split.</p></div>
+      <div class='lc-card'><div class='lc-eyebrow'>02 · Map</div><div class='lc-h3'>Many cores at once</div>
+        <p>Worker processes count their chunks in parallel and return small partial counts.</p></div>
+      <div class='lc-card'><div class='lc-eyebrow'>03 · Reduce</div><div class='lc-h3'>One verified answer</div>
+        <p>The master merges the counts and checks them word-for-word against the sequential run.</p></div>
+    </div>""")
+
+
+def how_page() -> None:
+    """PDC concepts explained."""
+    show("<div class='lc-eyebrow'>How it works</div><div class='lc-h1'>MapReduce, <em>step by step.</em></div>"
+         "<div class='lc-lead'>How each Parallel and Distributed Computing concept maps to the code.</div>")
+    show(pdc_table())
+    show("""<div class='lc-cols3' style='margin-top:12px'>
+      <div class='lc-card'><div class='lc-eyebrow'>Speedup</div><div class='lc-h3'>S = T_seq / T_par</div>
+        <p>How many times faster the parallel version is than one core.</p></div>
+      <div class='lc-card'><div class='lc-eyebrow'>Efficiency</div><div class='lc-h3'>E = S / p</div>
+        <p>How well the p workers are used; 100% would be perfect linear scaling.</p></div>
+      <div class='lc-card'><div class='lc-eyebrow'>Karp-Flatt</div><div class='lc-h3'>e = (1/S − 1/p) / (1 − 1/p)</div>
+        <p>The measured serial fraction; by Amdahl's Law the speedup can never exceed 1 / e.</p></div>
+    </div>""")
+
+
+def about_page() -> None:
+    """Short project description."""
+    show("<div class='lc-eyebrow'>About</div><div class='lc-h1'>A PDC final project, <em>explained.</em></div>"
+         "<div class='lc-lead'>LexiCount: A Parallel Word Frequency Analyzer Using Data Decomposition and MapReduce.</div>")
+    show("""<div class='lc-cols3' style='margin-top:0'>
+      <div class='lc-card'><div class='lc-eyebrow'>Problem</div><div class='lc-h3'>Big text is slow</div>
+        <p>Counting words in hundreds of megabytes on a single core leaves the rest of the CPU idle.</p></div>
+      <div class='lc-card'><div class='lc-eyebrow'>Solution</div><div class='lc-h3'>Split, count, merge</div>
+        <p>Data decomposition plus MapReduce on Python's multiprocessing pool, standard library only.</p></div>
+      <div class='lc-card'><div class='lc-eyebrow'>Evidence</div><div class='lc-h3'>Measured, not assumed</div>
+        <p>Execution time, speedup, efficiency, Karp-Flatt and a full correctness check on every run.</p></div>
+    </div>""")
+
+
+def main() -> None:
+    """Page router with one shared header and smooth no-reload tab switching."""
+    from landing_page import render_header, render_landing_body
+
+    st.set_page_config(page_title="lexicount", layout="wide", initial_sidebar_state="collapsed")
+    active = render_header()
+    if active == "analyzer":
+        st.markdown(CSS, unsafe_allow_html=True)
+        analyzer_page()
+        footer()
+    else:
+        render_landing_body(active)
 
 
 if __name__ == "__main__":

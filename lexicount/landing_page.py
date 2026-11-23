@@ -3,56 +3,48 @@
 from __future__ import annotations
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
-LANDING_CSS = """
+SHARED_HEADER_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400;1,500&display=swap');
 
-html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-  background: #f8f6f1 !important;
-}
-header[data-testid="stHeader"], [data-testid="stSidebar"], [data-testid="collapsedControl"],
-footer, #MainMenu { display: none !important; }
-.stMainBlockContainer, .main .block-container {
-  max-width: none !important;
-  padding: 0 !important;
-}
-.stMarkdown { margin: 0 !important; }
-.stElementContainer { margin: 0 !important; }
-.lc-page, .lc-page * { box-sizing: border-box; }
-.lc-page {
-  --ink: #1d1d1a;
-  --subtle: #6d6a63;
-  --line: #d9d4ca;
-  color: var(--ink);
-  min-height: 100vh;
-  overflow: hidden;
-  position: relative;
-  font-family: 'DM Sans', 'Manrope', sans-serif;
+html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
   background:
     radial-gradient(circle at 17% 17%, rgba(255,255,255,.94), transparent 34%),
     radial-gradient(circle at 78% 40%, rgba(215,205,186,.54), transparent 34%),
     radial-gradient(circle at 38% 76%, rgba(226,216,198,.62), transparent 41%),
-    #f4f1ea;
+    #f4f1ea !important;
+  color: #1d1d1a;
+  font-family: 'DM Sans', 'Manrope', sans-serif;
 }
-.lc-page::before, .lc-page::after {
-  content: ''; position: absolute; pointer-events: none; z-index: 0;
-  border: 19px solid rgba(190,179,158,.13); border-radius: 50%; filter: blur(13px);
+header[data-testid="stHeader"], [data-testid="stSidebar"], [data-testid="collapsedControl"],
+[data-testid="stToolbar"], [data-testid="stDecoration"], footer, #MainMenu { display: none !important; }
+.stMainBlockContainer, .main .block-container {
+  max-width: 1606px !important;
+  width: 100% !important;
+  margin: 0 auto !important;
+  padding: 0 3.45% 48px !important;
+  background: transparent !important;
+  border-radius: 0 !important;
 }
-.lc-page::before { width: 230px; height: 230px; right: -100px; top: 270px; }
-.lc-page::after { width: 110px; height: 110px; left: 4%; top: 55%; opacity: .45; }
-.lc-page a { text-decoration: none !important; }
-.lc-shell { position: relative; z-index: 1; width: min(100%, 1606px); margin: 0 auto; }
+.stMarkdown { margin: 0 !important; }
+.stElementContainer { margin: 0 !important; }
+[data-testid="stVerticalBlock"] { gap: 0.6rem; }
+.lc-header, .lc-header *, .lc-page, .lc-page * { box-sizing: border-box; }
 .lc-header {
+  --ink: #1d1d1a;
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-  padding: 9px 3.45% 0; min-height: 78px;
+  padding: 9px 0 0; min-height: 78px;
+  font-family: 'DM Sans', 'Manrope', sans-serif;
 }
-.lc-brand { color: var(--ink) !important; font-family: 'Manrope', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -.075em; }
-.lc-nav { display: flex; align-items: center; gap: 3px; padding: 7px; background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.85); border-radius: 999px; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-.lc-nav a { color: #2f2d29 !important; padding: 13px 24px; min-height: 44px; border-radius: 999px; font-size: 15px; font-weight: 600; white-space: nowrap; transition: background .2s ease, color .2s ease; }
-.lc-nav a:hover { background: rgba(29,29,26,.08); }
-.lc-nav a.active { background: var(--ink); color: #fff !important; }
+.lc-header a, .lc-page a { text-decoration: none !important; }
+.lc-brand { color: #1d1d1a !important; font-family: 'Manrope', sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -.075em; justify-self: start; }
+.lc-nav { display: flex; align-items: center; gap: 3px; padding: 7px; background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.85); border-radius: 999px !important; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+.lc-nav a { display: inline-flex; align-items: center; justify-content: center; color: #2f2d29 !important; padding: 11px 24px; min-height: 44px; border-radius: 999px !important; font-size: 15px; font-weight: 600; white-space: nowrap; transition: background .2s ease, color .2s ease; }
+.lc-nav a:hover { background: rgba(29,29,26,.08); border-radius: 999px !important; }
+.lc-nav a.active { background: #1d1d1a; color: #fff !important; border-radius: 999px !important; }
 .lc-header-action { justify-self: end; }
 .lc-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 24px;
@@ -60,9 +52,25 @@ footer, #MainMenu { display: none !important; }
   font-weight: 600; white-space: nowrap; transition: transform .2s ease, box-shadow .2s ease;
 }
 .lc-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(35,30,20,.12); }
-.lc-btn-dark { background: var(--ink); color: #fff !important; }
-.lc-btn-light { color: var(--ink) !important; background: rgba(255,255,255,.88); border: 1px solid #d9d4ca; }
+.lc-btn-dark { background: #1d1d1a; color: #fff !important; }
+.lc-btn-light { color: #1d1d1a !important; background: rgba(255,255,255,.88); border: 1px solid #d9d4ca; }
 .lc-btn-icon { width: 20px; height: 20px; flex: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+.lc-page {
+  --ink: #1d1d1a;
+  --subtle: #6d6a63;
+  --line: #d9d4ca;
+  color: var(--ink);
+  position: relative;
+  font-family: 'DM Sans', 'Manrope', sans-serif;
+}
+.lc-shell { position: relative; z-index: 1; width: 100%; margin: 0 auto; animation: lc-view-fade .22s ease-out; }
+@keyframes lc-view-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.st-key-lc_nav_hidden {
+  position: fixed !important; left: -9999px !important; top: -9999px !important;
+  width: 1px !important; height: 1px !important; overflow: hidden !important;
+  opacity: 0 !important; pointer-events: none !important;
+}
+iframe[height="0"] { display: none !important; }
 .lc-hero { text-align: center; padding: 77px 24px 0; }
 .lc-eyebrow, .lc-mini, .lc-under, .lc-flow {
   font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .11em;
@@ -130,19 +138,80 @@ def _header(active: str) -> str:
         ("About", "about", "?view=about"),
     )
     links = "".join(
-        f'<a class="{"active" if active == key else ""}" href="{href}" target="_self">{label}</a>'
+        f'<a class="{"active" if active == key else ""}" data-lc-view="{key}" href="{href}" target="_self">{label}</a>'
         for label, key, href in items
+    )
+    cta = (
+        ""
+        if active == "analyzer"
+        else f'<a class="lc-btn lc-btn-dark lc-header-action" data-lc-view="analyzer" href="?view=analyzer" target="_self">Start analyzing {ARROW_UP_RIGHT}</a>'
     )
     return f"""
     <header class="lc-header">
-      <a class="lc-brand" href="?view=home" target="_self" aria-label="LexiCount home">lexicount</a>
+      <a class="lc-brand" data-lc-view="home" href="?view=home" target="_self" aria-label="LexiCount home">lexicount</a>
       <nav class="lc-nav" aria-label="Main navigation">{links}</nav>
-      <a class="lc-btn lc-btn-dark lc-header-action" href="?view=analyzer" target="_self">Start analyzing {ARROW_UP_RIGHT}</a>
+      {cta}
     </header>"""
 
 
-def render_landing(view: str) -> None:
-    """Render the landing page or a temporary informational-page placeholder."""
+def _compact(markup: str) -> str:
+    """Strip indentation so Markdown never interprets HTML lines as a code block."""
+    return "".join(line.strip() for line in markup.splitlines())
+
+
+def _set_view(target: str) -> None:
+    """Update active view in session state without triggering a full page reload."""
+    st.session_state["view"] = target
+    st.query_params["view"] = target
+
+
+def _mount_smooth_nav() -> None:
+    """Intercept header/CTA link clicks so they trigger Streamlit reruns (no browser blink)."""
+    with st.container(key="lc_nav_hidden"):
+        for target in ("home", "analyzer", "how-it-works", "about"):
+            key_name = "lc_nav_" + target.replace("-", "_")
+            st.button(target, key=key_name, on_click=_set_view, args=(target,))
+    components.html(
+        """<script>
+        (function() {
+          try {
+            const doc = window.parent.document;
+            if (doc._lcSmoothNavBound) return;
+            doc._lcSmoothNavBound = true;
+            doc.addEventListener("click", function(e) {
+              const link = e.target && e.target.closest ? e.target.closest("[data-lc-view], [data-lc-trigger]") : null;
+              if (!link) return;
+              const trigger = link.getAttribute("data-lc-trigger");
+              const view = link.getAttribute("data-lc-view");
+              const cls = trigger
+                ? ".st-key-" + trigger + " button"
+                : ".st-key-lc_nav_" + view.replace(/-/g, "_") + " button";
+              const btn = doc.querySelector(cls);
+              if (btn) {
+                e.preventDefault();
+                btn.click();
+              }
+            }, true);
+          } catch (err) {}
+        })();
+        </script>""",
+        height=0,
+    )
+
+
+def render_header(active: str | None = None) -> str:
+    """Render the single shared header used across every view (smooth SPA switching)."""
+    if "view" not in st.session_state:
+        qp = st.query_params.get("view", "home")
+        st.session_state["view"] = qp if qp in {"home", "analyzer", "how-it-works", "about"} else "home"
+    current = active if active is not None else st.session_state["view"]
+    st.markdown(SHARED_HEADER_CSS + _compact(_header(current)), unsafe_allow_html=True)
+    _mount_smooth_nav()
+    return current
+
+
+def render_landing_body(view: str) -> None:
+    """Render the landing hero or placeholder body below the shared header."""
     if view == "home":
         letters = "LEXICOUNT"
         codes = ("02", "e7", "19", "x4", "03", "n8", "11", "t2", "09")
@@ -164,8 +233,8 @@ def render_landing(view: str) -> None:
           <div class="lc-flow">CHARACTERS <b aria-hidden="true">→</b> PARALLEL COUNTS <b aria-hidden="true">→</b> CLARITY</div>
           <p class="lc-intro">Turn text into perspective. Explore word frequencies with parallel processing, and see the patterns hiding in plain sight.</p>
           <div class="lc-actions">
-            <a class="lc-btn lc-btn-dark" href="?view=analyzer" target="_self">Start analyzing {ARROW_UP_RIGHT}</a>
-            <a class="lc-btn lc-btn-light" href="?view=how-it-works" target="_self">See how it works {ARROW_DOWN}</a>
+            <a class="lc-btn lc-btn-dark" data-lc-view="analyzer" href="?view=analyzer" target="_self">Start analyzing {ARROW_UP_RIGHT}</a>
+            <a class="lc-btn lc-btn-light" data-lc-view="how-it-works" href="?view=how-it-works" target="_self">See how it works {ARROW_DOWN}</a>
           </div>
         </main>"""
     else:
@@ -175,10 +244,13 @@ def render_landing(view: str) -> None:
           <div class="lc-eyebrow">LEXICOUNT</div>
           <h1>{title}</h1>
           <p>This page is coming soon. The analyzer is ready to use now.</p>
-          <a class="lc-btn lc-btn-dark" href="?view=analyzer" target="_self">Open analyzer {ARROW_UP_RIGHT}</a>
+          <a class="lc-btn lc-btn-dark" data-lc-view="analyzer" href="?view=analyzer" target="_self">Open analyzer {ARROW_UP_RIGHT}</a>
         </div></main>"""
 
-    st.markdown(
-        LANDING_CSS + f'<div class="lc-page"><div class="lc-shell">{_header(view)}{content}</div></div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<div class="lc-page"><div class="lc-shell">{_compact(content)}</div></div>', unsafe_allow_html=True)
+
+
+def render_landing(view: str) -> None:
+    """Render the shared header + landing body."""
+    render_header(view)
+    render_landing_body(view)
