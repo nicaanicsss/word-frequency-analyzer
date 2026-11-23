@@ -16,6 +16,7 @@ import platform
 
 if __name__ != "__mp_main__":
     import streamlit as st
+    import streamlit.components.v1 as components
 
 from dataset_generator import DATA_DIR
 from main import find_differences, interpret
@@ -606,10 +607,39 @@ def timeline_card(res: dict) -> str:
             f"its details.</div></div>")
 
 
+def scroll_to_results(run_id: int) -> None:
+    """Smoothly scroll the page to the results of run `run_id` (the "Last run" line).
+
+    Runs inside a zero-height component iframe and reaches the page through
+    window.parent, like the landing page's navigation. It waits up to 3 s for that
+    run's results to appear, so it never scrolls to an older run's results.
+    """
+    components.html(
+        f"""<script>
+        (function() {{
+          const doc = window.parent.document;
+          const smooth = !window.parent.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          let tries = 0;
+          (function find() {{
+            const target = doc.querySelector('.lc-run[data-run="{run_id}"]');
+            if (target) {{
+              target.style.scrollMarginTop = '24px';
+              target.scrollIntoView({{behavior: smooth ? 'smooth' : 'auto', block: 'start'}});
+            }} else if (++tries < 30) {{
+              setTimeout(find, 100);
+            }}
+          }})();
+        }})();
+        </script>""",
+        height=0,
+    )
+
+
 def results_view(res: dict) -> None:
     """Everything shown after a run."""
     actual_mb = res["stats"]["chunk_size"] / MB
-    show(f"<div class='lc-run'>Last run · {html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
+    show(f"<div class='lc-run' data-run='{res.get('run_id', 0)}'>Last run · "
+         f"{html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
          f" · {actual_mb:.2f} MB chunks · {res['mode']} IPC</div>")
     show(kpi_row(res) + correctness_block(res) + meaning_block(res))
     show(f"<div class='lc-grid2'>{word_bars(res)}{time_card(res)}</div>")
@@ -652,7 +682,10 @@ def analyzer_page() -> None:
     if settings is None:
         return
     if settings["run"]:
-        st.session_state["results"] = run_analysis(settings)
+        run_id = st.session_state.get("run_count", 0) + 1
+        st.session_state["run_count"] = run_id
+        st.session_state["results"] = {**run_analysis(settings), "run_id": run_id}
+        st.session_state["scroll_to_run"] = run_id  # scroll once, right after this run
 
     active_tab = st.session_state.setdefault("an_tab", "live")
     show(
@@ -666,6 +699,9 @@ def analyzer_page() -> None:
         if res:
             res["query"] = settings["query"]  # filter can change without re-running
             results_view(res)
+            # Only the rerun that follows "Run analysis" scrolls; slider or filter changes don't.
+            if st.session_state.pop("scroll_to_run", None) == res.get("run_id"):
+                scroll_to_results(res["run_id"])
         else:
             show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
                  "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
