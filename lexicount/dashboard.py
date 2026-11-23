@@ -120,16 +120,6 @@ div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.8
 .st-key-controls .stButton > button:hover { background:#333 !important; }
 .st-key-controls .stButton > button p { color:#fff !important; }
 
-/* subtabs pill (exact match to mockup: white rounded pill container + dark rounded active pill) */
-.lc-subtabs { display:inline-flex; align-items:center; gap:4px; background:#fff;
-  border-radius:999px; padding:5px; margin:18px 0 12px 0;
-  box-shadow:0 1px 4px rgba(0,0,0,0.03); }
-.lc-subtabs a { padding:10px 22px; border-radius:999px; font-family:'DM Sans',sans-serif;
-  font-size:0.85rem; font-weight:500; color:var(--ink) !important; text-decoration:none !important;
-  cursor:pointer; user-select:none; white-space:nowrap;
-  transition:background .15s ease, color .15s ease; }
-.lc-subtabs a:hover { background:rgba(29,29,26,.06); }
-.lc-subtabs a.on { background:var(--ink); color:#fff !important; }
 .st-key-lc_an_hidden {
   position:fixed !important; left:-9999px !important; top:-9999px !important;
   width:1px !important; height:1px !important; overflow:hidden !important;
@@ -731,7 +721,7 @@ def pdc_table() -> str:
 # ---------------------------------------------------------------- pages
 
 def analyzer_page() -> None:
-    """Controls + live experiment + PDC architecture tabs."""
+    """Controls and live experiment results."""
     show(f"""
     <div class='lc-an-head'>
       <div>
@@ -748,8 +738,6 @@ def analyzer_page() -> None:
     with st.container(key="lc_an_hidden"):
         st.button("ipc_offset", key="lc_ipc_offset", on_click=lambda: st.session_state.__setitem__("ipc_mode", "offset"))
         st.button("ipc_send", key="lc_ipc_send", on_click=lambda: st.session_state.__setitem__("ipc_mode", "send"))
-        st.button("subtab_live", key="lc_subtab_live", on_click=lambda: st.session_state.__setitem__("an_tab", "live"))
-        st.button("subtab_theory", key="lc_subtab_theory", on_click=lambda: st.session_state.__setitem__("an_tab", "theory"))
 
     settings = controls()
     if settings is None:
@@ -760,26 +748,16 @@ def analyzer_page() -> None:
         st.session_state["results"] = {**run_analysis(settings), "run_id": run_id}
         st.session_state["scroll_to_run"] = run_id  # scroll once, right after this run
 
-    active_tab = st.session_state.setdefault("an_tab", "live")
-    show(
-        f"<div class='lc-subtabs'>"
-        f"<a class='{'on' if active_tab == 'live' else ''}' data-lc-trigger='lc_subtab_live' href='#'>Live experiment</a>"
-        f"<a class='{'on' if active_tab == 'theory' else ''}' data-lc-trigger='lc_subtab_theory' href='#'>PDC architecture</a>"
-        f"</div>"
-    )
-    if active_tab == "live":
-        res = st.session_state.get("results")
-        if res:
-            res["query"] = settings["query"]  # filter can change without re-running
-            results_view(res)
-            # Only the rerun that follows "Run analysis" scrolls; slider or filter changes don't.
-            if st.session_state.pop("scroll_to_run", None) == res.get("run_id"):
-                scroll_to_results(res["run_id"])
-        else:
-            show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
-                 "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
+    res = st.session_state.get("results")
+    if res:
+        res["query"] = settings["query"]  # filter can change without re-running
+        results_view(res)
+        # Only the rerun that follows "Run analysis" scrolls; slider or filter changes don't.
+        if st.session_state.pop("scroll_to_run", None) == res.get("run_id"):
+            scroll_to_results(res["run_id"])
     else:
-        show(pdc_table())
+        show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
+             "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
 
 
 def home_page() -> None:
