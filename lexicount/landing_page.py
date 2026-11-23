@@ -74,10 +74,10 @@ footer, #MainMenu { display: none !important; }
 .lc-letter { display: flex; flex-direction: column; align-items: center; min-width: 0; }
 .lc-mini { color: #b3aea5; font-size: clamp(11px, 1vw, 16px); letter-spacing: 0; height: 32px; }
 .lc-glyph-slot { position: relative; width: 100%; text-align: center; }
-.lc-count-mask { position: absolute; inset: 0; height: 1.12em; overflow: hidden; font-family: 'DM Mono', monospace; font-size: clamp(48px, 6.45vw, 97px); line-height: 1.12; color: #9b968d; animation: lc-count-fade 3.7s both; animation-delay: calc(var(--i) * .07s); }
-.lc-count-stack { display: block; animation: lc-count-roll 3.2s steps(19, end) both; animation-delay: calc(var(--i) * .07s); }
+.lc-count-mask { position: absolute; inset: 0; height: 1.12em; overflow: hidden; font-family: 'DM Mono', monospace; font-size: clamp(48px, 6.45vw, 97px); line-height: 1.12; color: #9b968d; animation: lc-count-fade 2.3s both; animation-delay: calc(var(--i) * .07s); }
+.lc-count-stack { display: block; animation: lc-count-roll 2s steps(19, end) both; animation-delay: calc(var(--i) * .07s); }
 .lc-count-stack span { display: block; height: 1.12em; }
-.lc-glyph { font-family: 'Manrope', Arial, sans-serif; font-size: clamp(48px, 6.45vw, 97px); font-weight: 400; line-height: 1.12; letter-spacing: -.03em; animation: lc-reveal .55s both; animation-delay: calc(3.15s + var(--i) * .07s); }
+.lc-glyph { font-family: 'Manrope', Arial, sans-serif; font-size: clamp(48px, 6.45vw, 97px); font-weight: 400; line-height: 1.12; letter-spacing: -.03em; animation: lc-reveal .55s both; animation-delay: calc(1.95s + var(--i) * .07s); }
 .lc-under { color: #9a958a; margin-top: 10px; font-size: 9px; letter-spacing: 0; }
 .lc-flow { display: flex; align-items: center; justify-content: center; gap: 16px; color: #817c72; margin: 16px 0 0; font-size: 10px; }
 .lc-flow b { font-size: 18px; font-family: Arial, sans-serif; font-weight: 400; }
