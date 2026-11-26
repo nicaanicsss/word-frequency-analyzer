@@ -1096,6 +1096,12 @@ def main() -> None:
         st.markdown(CSS, unsafe_allow_html=True)
         analyzer_page()
         footer()
+    elif active == "performance":
+        from performance_page import performance_page  # saved benchmark results (benchmark.py)
+
+        st.markdown(CSS, unsafe_allow_html=True)
+        performance_page()
+        footer()
     else:
         render_landing_body(active)
 
