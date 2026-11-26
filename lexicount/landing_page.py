@@ -134,7 +134,6 @@ def _header(active: str) -> str:
     items = (
         ("Home", "home", "?view=home"),
         ("Analyzer", "analyzer", "?view=analyzer"),
-        ("Analyzer (new)", "analyzer-v2", "?view=analyzer-v2"),
         ("How it works", "how-it-works", "?view=how-it-works"),
         ("About", "about", "?view=about"),
     )
@@ -144,7 +143,7 @@ def _header(active: str) -> str:
     )
     cta = (
         ""
-        if active in ("analyzer", "analyzer-v2")
+        if active == "analyzer"
         else f'<a class="lc-btn lc-btn-dark lc-header-action" data-lc-view="analyzer" href="?view=analyzer" target="_self">Start analyzing {ARROW_UP_RIGHT}</a>'
     )
     return f"""
@@ -169,7 +168,7 @@ def _set_view(target: str) -> None:
 def _mount_smooth_nav() -> None:
     """Intercept header/CTA link clicks so they trigger Streamlit reruns (no browser blink)."""
     with st.container(key="lc_nav_hidden"):
-        for target in ("home", "analyzer", "analyzer-v2", "how-it-works", "about"):
+        for target in ("home", "analyzer", "how-it-works", "about"):
             key_name = "lc_nav_" + target.replace("-", "_")
             st.button(target, key=key_name, on_click=_set_view, args=(target,))
     components.html(
@@ -204,7 +203,7 @@ def render_header(active: str | None = None) -> str:
     """Render the single shared header used across every view (smooth SPA switching)."""
     if "view" not in st.session_state:
         qp = st.query_params.get("view", "home")
-        st.session_state["view"] = qp if qp in {"home", "analyzer", "analyzer-v2", "how-it-works", "about"} else "home"
+        st.session_state["view"] = qp if qp in {"home", "analyzer", "how-it-works", "about"} else "home"
     current = active if active is not None else st.session_state["view"]
     st.markdown(SHARED_HEADER_CSS + _compact(_header(current)), unsafe_allow_html=True)
     _mount_smooth_nav()
