@@ -95,6 +95,68 @@ iframe[height="0"] { display: none !important; }
 .lc-placeholder-inner { max-width: 700px; }
 .lc-placeholder h1 { font: 400 clamp(54px, 7vw, 92px)/1.12 'Playfair Display', Georgia, serif; letter-spacing: 0; margin: 16px 0; }
 .lc-placeholder p { color: var(--subtle); font-size: 18px; line-height: 1.55; margin: 0 auto 30px; max-width: 520px; }
+.lc-doc { padding: 28px 0 36px; }
+.lc-doc-hero { display: grid; grid-template-columns: 1.25fr 1fr; gap: 24px; align-items: center; margin-bottom: 12px; }
+.lc-doc-h1 { font-family: 'Playfair Display', Georgia, serif !important; font-weight: 400 !important; font-size: clamp(38px, 4vw, 54px) !important; letter-spacing: -.02em !important; line-height: 1.1 !important; margin: 10px 0 12px !important; color: var(--ink) !important; }
+.lc-doc-h1 em { color: #7a5c43; font-style: italic; }
+.lc-doc-lead { color: var(--subtle); font-size: 15.5px; line-height: 1.65; max-width: 620px; margin: 0 !important; }
+.lc-doc-sec { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: #88847c; margin: 34px 0 14px; }
+.lc-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.lc-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.lc-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.lc-dcard { background: #fff; border-radius: 22px; padding: 24px 26px; border: 1px solid rgba(29,29,26,.06); box-shadow: 0 4px 18px rgba(35,30,20,.03); transition: transform .2s ease, box-shadow .2s ease; }
+.lc-dcard:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(35,30,20,.06); }
+.lc-dcard.dark { background: #1d1d1a; color: #fff; border-color: #1d1d1a; }
+.lc-dcard.sand { background: #ece5dc; border-color: rgba(122,92,67,.14); }
+.lc-dcard .k { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #88847c; margin-bottom: 8px; }
+.lc-dcard.dark .k { color: #bdb5a9; }
+.lc-dcard .t { font-family: 'Playfair Display', Georgia, serif; font-size: 22px; font-weight: 400; color: var(--ink); margin-bottom: 8px; line-height: 1.25; }
+.lc-dcard.dark .t { color: #fff; }
+.lc-dcard .f { font-family: 'DM Mono', monospace; font-size: 14.5px; color: #7a5c43; background: #f4f1ea; display: inline-block; padding: 5px 11px; border-radius: 8px; margin: 8px 0 12px; }
+.lc-dcard.dark .f { color: #f4f1ea; background: rgba(255,255,255,.11); }
+.lc-dcard p { color: var(--subtle); font-size: 14px; line-height: 1.6; margin: 0; }
+.lc-dcard.dark p { color: #cfc9be; }
+.lc-step-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.lc-step-num { font-family: 'Playfair Display', Georgia, serif; font-size: 32px; line-height: 1; color: #c9b8a6; }
+.lc-step-ico { width: 36px; height: 36px; border-radius: 11px; background: #f4f1ea; display: flex; align-items: center; justify-content: center; color: #7a5c43; }
+.lc-step-ico svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.lc-pipe-box { background: #1d1d1a; color: #fff; border-radius: 22px; padding: 22px 24px; box-shadow: 0 14px 32px rgba(29,29,26,.14); }
+.lc-pipe-label { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #bdb5a9; margin-bottom: 14px; }
+.lc-pipe-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.lc-pipe-node { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 9px 12px; font-family: 'DM Mono', monospace; font-size: 11.5px; color: #f4f1ea; text-align: center; flex: 1; }
+.lc-pipe-node.accent { background: #7a5c43; border-color: #7a5c43; color: #fff; }
+.lc-pipe-workers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; }
+.lc-pipe-w { background: rgba(255,255,255,.06); border: 1px dashed rgba(255,255,255,.2); border-radius: 9px; padding: 8px 6px; text-align: center; font-family: 'DM Mono', monospace; font-size: 10.5px; color: #e2d8cc; }
+.lc-pipe-arrow { text-align: center; color: #8c877d; font-size: 12px; line-height: 1; margin: 4px 0; }
+.lc-stats-2x2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.lc-stat-tile { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 14px 16px; }
+.lc-stat-tile .sv { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; color: #fff; line-height: 1.1; }
+.lc-stat-tile .sk { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #bdb5a9; margin-top: 6px; }
+.lc-dtbl { width: 100%; border-collapse: collapse; border: none !important; }
+.lc-dtbl thead, .lc-dtbl tbody, .lc-dtbl tr { border: none !important; }
+.lc-dtbl th { font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #88847c; font-weight: 400; text-align: left; padding: 0 14px 12px 0 !important; border: none !important; border-bottom: 1px solid #e6dfd4 !important; background: none !important; }
+.lc-dtbl td { font-size: 14px; padding: 13px 14px 13px 0 !important; border: none !important; border-bottom: 1px solid #ece5dc !important; color: var(--ink); vertical-align: middle; line-height: 1.5; background: none !important; }
+.lc-dtbl tr:last-child td { border-bottom: none !important; }
+.lc-pill-code { display: inline-block; background: #f4f1ea; color: #7a5c43; font-family: 'DM Mono', monospace; font-size: 12px; padding: 3px 9px; border-radius: 7px; white-space: nowrap; }
+.lc-dtbl td.d { color: var(--subtle); }
+.lc-team-card { background: #fff; border-radius: 20px; padding: 22px 24px; border: 1px solid rgba(29,29,26,.06); display: flex; align-items: center; gap: 16px; box-shadow: 0 4px 16px rgba(35,30,20,.03); transition: transform .2s ease; }
+.lc-team-card:hover { transform: translateY(-2px); }
+.lc-avatar { width: 50px; height: 50px; border-radius: 50%; background: #1d1d1a; color: #f4f1ea; display: flex; align-items: center; justify-content: center; font-family: 'Playfair Display', Georgia, serif; font-size: 18px; flex: none; }
+.lc-avatar.brown { background: #7a5c43; }
+.lc-avatar.sand { background: #d9cfc2; color: #1d1d1a; }
+.lc-team-name { font-family: 'Playfair Display', Georgia, serif; font-size: 20px; color: var(--ink); line-height: 1.2; }
+.lc-team-sub { font-family: 'DM Mono', monospace; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: #88847c; margin-top: 4px; }
+.lc-meta-row { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid rgba(29,29,26,.08); font-size: 14px; }
+.lc-meta-row:last-child { border-bottom: none; padding-bottom: 2px; }
+.lc-meta-row .mk { font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #736d64; }
+.lc-meta-row .mv { color: var(--ink); font-weight: 600; text-align: right; }
+.lc-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.lc-chips span { background: #f4f1ea; border: 1px solid #e6dfd4; border-radius: 999px; padding: 6px 14px; font-family: 'DM Mono', monospace; font-size: 12px; color: var(--ink); }
+.lc-doc-cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
+.lc-doc-foot { border-top: 1px solid #e6dfd4; margin-top: 44px; padding-top: 20px; display: flex; justify-content: space-between; font-size: 13px; color: var(--subtle); flex-wrap: wrap; gap: 10px; }
+.lc-doc-foot b { color: var(--ink); }
+.lc-doc-foot .m { font-family: 'DM Mono', monospace; font-size: 12px; }
+@media (max-width: 980px) { .lc-doc-hero, .lc-grid-4, .lc-grid-3, .lc-grid-2 { grid-template-columns: 1fr; } }
 .lc-page a:focus-visible { outline: 3px solid #8e785a; outline-offset: 4px; }
 @keyframes lc-reveal { from { opacity: 0; transform: translateY(15px); filter: blur(5px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
 @keyframes lc-count-roll { from { transform: translateY(0); } to { transform: translateY(-21.28em); } }
@@ -211,8 +273,198 @@ def render_header(active: str | None = None) -> str:
     return current
 
 
+def _how_it_works_html() -> str:
+    """Visual MapReduce + PCAM walkthrough and performance formulas."""
+    pdc_rows = (
+        ("Partitioning (PCAM)", "chunker.py", "compute_chunks",
+         "Splits the file into pieces that always end on a space or symbol, so no word is ever cut in half."),
+        ("Agglomeration (PCAM)", "chunker.py", "chunk_size_bytes",
+         "Groups text into megabyte-sized chunks (default 4 MB) so workers spend more time counting than waiting."),
+        ("Communication (PCAM)", "parallel.py", "build_tasks",
+         "Offset mode sends only the start and end positions of each chunk; send mode copies the full text bytes to compare speed."),
+        ("Load Balancing", "parallel.py", "imap_unordered",
+         "Creates more chunks than workers so any worker that finishes early immediately grabs the next piece."),
+        ("Map Phase (+ Combiner)", "parallel.py", "map_chunk",
+         "Each worker counts words in its chunk and sends back a short summary dictionary instead of millions of raw words."),
+        ("Reduce Phase", "parallel.py", "total.update",
+         "The main process combines each worker's counts into one final total as soon as results arrive."),
+        ("Synchronization", "parallel.py", "Pool / close / join",
+         "Waits until every worker has finished its chunks before sorting the final Top-N words."),
+        ("Why Processes, Not Threads", "parallel.py", "multiprocessing.Pool",
+         "Python's GIL lets only one thread run Python code at a time. Separate processes run truly in parallel on multiple CPU cores."),
+    )
+    rows_html = "".join(
+        f'<tr><td><b>{concept}</b></td><td><span class="lc-pill-code">{fname}</span></td>'
+        f'<td><span class="lc-pill-code">{func}</span></td><td class="d">{desc}</td></tr>'
+        for concept, fname, func, desc in pdc_rows
+    )
+    return f"""
+    <main class="lc-doc">
+      <div class="lc-eyebrow">HOW IT WORKS</div>
+      <h1 class="lc-doc-h1">MapReduce, <em>step by step.</em></h1>
+      <p class="lc-doc-lead">LexiCount counts every word twice: first with one core (sequential), then with multiple cores at the same time (parallel), and checks that both give the exact same answer.</p>
+
+      <div class="lc-doc-sec">01 · The 4-stage pipeline</div>
+      <div class="lc-grid-4">
+        <div class="lc-dcard">
+          <div class="lc-step-top"><span class="lc-step-num">01</span></div>
+          <div class="k">Partition</div>
+          <div class="t">Split without cutting words</div>
+          <p>The file is divided into chunks that always stop at a space or punctuation mark, so no word is ever split in two.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="lc-step-top"><span class="lc-step-num">02</span></div>
+          <div class="k">Map</div>
+          <div class="t">Count at the same time</div>
+          <p>Each worker reads its own chunk, counts the words inside it, and sends back a compact word-count list.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="lc-step-top"><span class="lc-step-num">03</span></div>
+          <div class="k">Reduce</div>
+          <div class="t">Combine the totals</div>
+          <p>As each worker finishes, the main process adds its counts into one shared total.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="lc-step-top"><span class="lc-step-num">04</span></div>
+          <div class="k">Verify</div>
+          <div class="t">Check every word</div>
+          <p>Every single word count is checked against the single-core run to prove both versions match 100%.</p>
+        </div>
+      </div>
+
+      <div class="lc-doc-sec">02 · How PDC concepts map to the codebase</div>
+      <div class="lc-dcard">
+        <table class="lc-dtbl">
+          <tr><th>PDC Concept</th><th>File</th><th>Function</th><th>What it does</th></tr>
+          {rows_html}
+        </table>
+      </div>
+
+      <div class="lc-doc-sec">03 · Performance metrics &amp; formulas</div>
+      <div class="lc-grid-4">
+        <div class="lc-dcard dark">
+          <div class="k">Speedup · S</div>
+          <div class="t">How much faster</div>
+          <div class="f">S = T_seq / T_par</div>
+          <p>Compares single-core time to parallel time. Above 1.0× means the parallel run was faster.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="k">Efficiency · E</div>
+          <div class="t">How well cores are used</div>
+          <div class="f">E = S / p</div>
+          <p>Shows how close we got to ideal speedup across p workers. 100% is perfect; real runs are lower due to overhead.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="k">Karp-Flatt · e</div>
+          <div class="t">Serial portion</div>
+          <div class="f">e = (1/S − 1/p) / (1 − 1/p)</div>
+          <p>Estimates how much of the run could not be split across cores, such as starting workers and merging counts.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="k">Amdahl's Law</div>
+          <div class="t">Maximum speedup</div>
+          <div class="f">S_max(p) = 1 / (e + (1 − e)/p)</div>
+          <p>Shows the highest speedup possible for p workers. Even with infinite cores, speedup cannot pass 1 / e.</p>
+        </div>
+      </div>
+
+      <div class="lc-doc-cta">
+        <a class="lc-btn lc-btn-dark" data-lc-view="analyzer" href="?view=analyzer" target="_self">Try it in the Analyzer {ARROW_UP_RIGHT}</a>
+        <a class="lc-btn lc-btn-light" data-lc-view="performance" href="?view=performance" target="_self">View Benchmark Results {ARROW_UP_RIGHT}</a>
+      </div>
+
+      <div class="lc-doc-foot">
+        <div><b>lexicount</b> · BCS43 Parallel and Distributed Computing</div>
+        <div class="m">S = T_seq / T_par · E = S / p</div>
+      </div>
+    </main>"""
+
+
+def _about_html() -> str:
+    """Rich editorial About page with monogram team cards and course details."""
+    return f"""
+    <main class="lc-doc">
+      <div class="lc-eyebrow">ABOUT LEXICOUNT</div>
+      <h1 class="lc-doc-h1">A PDC final project, <em>built for clarity.</em></h1>
+      <p class="lc-doc-lead">LexiCount is a parallel word frequency analyzer built with data decomposition and MapReduce to show real multi-core speedup, exact correctness checks, and clear performance metrics.</p>
+
+      <div class="lc-doc-sec">01 · Project overview</div>
+      <div class="lc-grid-3">
+        <div class="lc-dcard">
+          <div class="k">01 · Problem</div>
+          <div class="t">Large text is slow on one core</div>
+          <p>Counting words across hundreds of megabytes of text on a single CPU core is slow and leaves the rest of the computer's cores idle.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="k">02 · Solution</div>
+          <div class="t">Data decomposition + MapReduce</div>
+          <p>LexiCount splits files at safe word boundaries and counts chunks in parallel using Python's built-in multiprocessing library, with no external packages in the core engine.</p>
+        </div>
+        <div class="lc-dcard">
+          <div class="k">03 · Evidence</div>
+          <div class="t">Measured &amp; verified</div>
+          <p>Every run checks that parallel and sequential counts match word-for-word, then reports execution time, speedup, efficiency, and serial overhead.</p>
+        </div>
+      </div>
+
+      <div class="lc-doc-sec">02 · Development team</div>
+      <div class="lc-grid-3">
+        <div class="lc-team-card">
+          <div class="lc-avatar">HB</div>
+          <div><div class="lc-team-name">Harlene J. Bautista</div><div class="lc-team-sub">Member 01 · BCS43</div></div>
+        </div>
+        <div class="lc-team-card">
+          <div class="lc-avatar brown">TD</div>
+          <div><div class="lc-team-name">Timothy Rhine L. De Castro</div><div class="lc-team-sub">Member 02 · BCS43</div></div>
+        </div>
+        <div class="lc-team-card">
+          <div class="lc-avatar sand">ND</div>
+          <div><div class="lc-team-name">Nica Estelle R. Desacola</div><div class="lc-team-sub">Member 03 · BCS43</div></div>
+        </div>
+      </div>
+
+      <div class="lc-doc-sec">03 · Course details &amp; tech stack</div>
+      <div class="lc-grid-2">
+        <div class="lc-dcard sand">
+          <div class="k">Academic Details</div>
+          <div class="t" style="margin-bottom: 12px;">Course &amp; Institution</div>
+          <div class="lc-meta-row"><span class="mk">University</span><span class="mv">De La Salle University - Dasmariñas</span></div>
+          <div class="lc-meta-row"><span class="mk">Department</span><span class="mv">CICS · Computer Science Department</span></div>
+          <div class="lc-meta-row"><span class="mk">Course</span><span class="mv">BCS43 · Parallel and Distributed Computing</span></div>
+          <div class="lc-meta-row"><span class="mk">Instructor</span><span class="mv">Sir Joseph Allen Ong</span></div>
+          <div class="lc-meta-row"><span class="mk">Project Topic</span><span class="mv">Topic #8 · Word Frequency Analyzer</span></div>
+        </div>
+        <div class="lc-dcard">
+          <div class="k">Core &amp; Presentation Layers</div>
+          <div class="t" style="margin-bottom: 10px;">Technology Stack</div>
+          <p>The parallel engine uses only Python's standard library so every step from splitting files to merging counts is easy to follow. Matplotlib draws the benchmark charts, and Streamlit powers this live-demo interface.</p>
+          <div class="lc-chips">
+            <span>Python 3.10+</span>
+            <span>multiprocessing.Pool</span>
+            <span>collections.Counter</span>
+            <span>re (bytes)</span>
+            <span>time.perf_counter</span>
+            <span>unittest</span>
+            <span>matplotlib</span>
+            <span>Streamlit (UI)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="lc-doc-cta">
+        <a class="lc-btn lc-btn-dark" data-lc-view="analyzer" href="?view=analyzer" target="_self">Open Analyzer {ARROW_UP_RIGHT}</a>
+        <a class="lc-btn lc-btn-light" data-lc-view="how-it-works" href="?view=how-it-works" target="_self">See How it works {ARROW_UP_RIGHT}</a>
+      </div>
+
+      <div class="lc-doc-foot">
+        <div><b>lexicount</b> · De La Salle University - Dasmariñas · CICS</div>
+        <div class="m">BCS43 · Parallel and Distributed Computing</div>
+      </div>
+    </main>"""
+
+
 def render_landing_body(view: str) -> None:
-    """Render the landing hero or placeholder body below the shared header."""
+    """Render the landing hero, How it works, or About page below the shared header."""
     if view == "home":
         letters = "LEXICOUNT"
         codes = ("02", "e7", "19", "x4", "03", "n8", "11", "t2", "09")
@@ -238,15 +490,10 @@ def render_landing_body(view: str) -> None:
             <a class="lc-btn lc-btn-light" data-lc-view="how-it-works" href="?view=how-it-works" target="_self">See how it works {ARROW_DOWN}</a>
           </div>
         </main>"""
+    elif view == "how-it-works":
+        content = _how_it_works_html()
     else:
-        title = "How it works" if view == "how-it-works" else "About LexiCount"
-        content = f"""
-        <main class="lc-placeholder"><div class="lc-placeholder-inner">
-          <div class="lc-eyebrow">LEXICOUNT</div>
-          <h1>{title}</h1>
-          <p>This page is coming soon. The analyzer is ready to use now.</p>
-          <a class="lc-btn lc-btn-dark" data-lc-view="analyzer" href="?view=analyzer" target="_self">Open analyzer {ARROW_UP_RIGHT}</a>
-        </div></main>"""
+        content = _about_html()
 
     st.markdown(f'<div class="lc-page"><div class="lc-shell">{_compact(content)}</div></div>', unsafe_allow_html=True)
 

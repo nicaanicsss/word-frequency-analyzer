@@ -186,10 +186,10 @@ div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.8
 .lc-flow { font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.18em;
   color:var(--muted); margin:26px 0 30px 0; }
 .lc-hero p { color:var(--muted); font-size:0.95rem; max-width:560px; margin:0 auto 26px auto; line-height:1.6; }
-.lc-btn { display:inline-block; padding:12px 24px; border-radius:999px; font-size:0.84rem; font-weight:600;
+.lc-hero .lc-btn { display:inline-block; padding:12px 24px; border-radius:999px; font-size:0.84rem; font-weight:600;
   text-decoration:none !important; margin:0 5px; }
-.lc-btn.dark { background:var(--ink); color:#fff !important; }
-.lc-btn.light { background:#fff; color:var(--ink) !important; }
+.lc-hero .lc-btn.dark { background:var(--ink); color:#fff !important; }
+.lc-hero .lc-btn.light { background:#fff; color:var(--ink) !important; }
 .lc-cols3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:44px; }
 .lc-cols3 .lc-card p { font-size:0.82rem; color:var(--muted); line-height:1.6; margin-top:8px; }
 .lc-pdc td { vertical-align:top; padding:12px 12px 12px 0; }
@@ -235,7 +235,7 @@ def list_datasets() -> list[str]:
 
 def dataset_label(path: str) -> str:
     """Text shown in the dataset dropdown."""
-    return f"{os.path.basename(path)} — {os.path.getsize(path) / MB:.1f} MB"
+    return f"{os.path.basename(path)} ({os.path.getsize(path) / MB:.1f} MB)"
 
 
 def show(markup: str) -> None:
@@ -280,7 +280,7 @@ def controls() -> dict | None:
                 label_visibility="collapsed",
             )
         label("Filter words")
-        query = st.text_input("filter", placeholder="e.g. algorithm, data, love — leave empty for top words",
+        query = st.text_input("filter", placeholder="e.g. algorithm, data, love (leave empty for top words)",
                               label_visibility="collapsed", key="result_word_filter")
         with st.expander("More options"):
             c3, c4, c5 = st.columns([2, 1.5, 1], gap="medium")
