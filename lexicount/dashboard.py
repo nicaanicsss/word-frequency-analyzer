@@ -415,7 +415,7 @@ def correctness_block(res: dict) -> str:
     return f"<div class='lc-ok bad'><div class='dot'>✕</div><div><b>Mismatch.</b> {diffs}</div></div>"
 
 
-def meaning_block(res: dict) -> str:
+def meaning_text(res: dict) -> str:
     """Plain-language explanation of the numbers (no formulas or metric names)."""
     p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
     s = speedup(t_seq, t_par)
@@ -442,7 +442,12 @@ def meaning_block(res: dict) -> str:
         if serial is not None and serial > 0:
             text += (f"About {serial:.0%} of the work still behaves as if it can't be split, so even with "
                      f"unlimited workers this would top out around {1 / serial:.0f}× faster.")
-    return f"<div class='lc-note'><div class='lc-eyebrow'>What this means</div><p>{text}</p></div>"
+    return text
+
+
+def meaning_block(res: dict) -> str:
+    """The "What this means" box on the original analyzer page."""
+    return f"<div class='lc-note'><div class='lc-eyebrow'>What this means</div><p>{meaning_text(res)}</p></div>"
 
 
 def word_bars(res: dict) -> str:
@@ -579,7 +584,7 @@ def plural(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
 
-def timeline_card(res: dict) -> str:
+def timeline_card(res: dict, show_title: bool = True) -> str:
     """Worker timeline (Gantt chart) plus load balancing: who counted which chunk, and when.
 
     Each row is one worker process, drawn as a small person. Each block is one chunk,
@@ -659,9 +664,9 @@ def timeline_card(res: dict) -> str:
                f"Each worker took a chunk, counted its words, then took the next free chunk, until none were left.")
     compact = " lc-tl-compact" if stats["workers"] > COMPACT_ABOVE else ""
     return (f"{TIMELINE_CSS}<div class='lc-card{compact}' style='margin-top:12px'>"
-            f"<div class='lc-tl-top'><span class='lc-h3'>How the work was shared</span>"
-            f"<span class='lc-mini'>replayed in {REPLAY_SECONDS:g} s</span></div>"
-            f"<div class='lc-tl-summary'>{summary}</div>"
+            + (f"<div class='lc-tl-top'><span class='lc-h3'>How the work was shared</span>"
+               f"<span class='lc-mini'>replayed in {REPLAY_SECONDS:g} s</span></div>" if show_title else "")
+            + f"<div class='lc-tl-summary'>{summary}</div>"
             f"<div class='lc-tl-grid'>{rows}</div>"
             f"<div class='lc-foot2'><b>How to read it:</b> each row is one worker. Each block is one chunk of "
             f"the file; it starts when the worker began counting it and is as long as the counting took. "
@@ -837,6 +842,17 @@ def pdc_table() -> str:
 
 # ---------------------------------------------------------------- pages
 
+def store_run(settings: dict) -> None:
+    """Run the analysis and keep it, plus the previous run for the comparison (both analyzer pages)."""
+    new_result = run_analysis(settings)  # if this fails, the stored runs stay as they were
+    run_id = st.session_state.get("run_count", 0) + 1
+    st.session_state["run_count"] = run_id
+    st.session_state["previous_results"] = st.session_state.get("results")
+    st.session_state["results"] = {**new_result, "run_id": run_id}
+    st.session_state["last_settings"] = settings
+    st.session_state["scroll_to_run"] = run_id  # scroll once, right after this run
+
+
 def analyzer_page() -> None:
     """Controls and live experiment results."""
     show(f"""
@@ -860,13 +876,7 @@ def analyzer_page() -> None:
     if settings is None:
         return
     if settings["run"]:
-        new_result = run_analysis(settings)  # if this fails, the stored runs stay as they were
-        run_id = st.session_state.get("run_count", 0) + 1
-        st.session_state["run_count"] = run_id
-        # Keep the last result as "previous" so the two runs can be compared.
-        st.session_state["previous_results"] = st.session_state.get("results")
-        st.session_state["results"] = {**new_result, "run_id": run_id}
-        st.session_state["scroll_to_run"] = run_id  # scroll once, right after this run
+        store_run(settings)
 
     res = st.session_state.get("results")
     if res:
@@ -878,6 +888,199 @@ def analyzer_page() -> None:
     else:
         show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
              "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
+
+
+# ---------------------------------------------------------------- analyzer (new layout)
+# "Analyzer (new)": the same results as a guided page, one question per section:
+#   1 Result  ->  2 How the work was shared  ->  3 Where the time went  ->  4 Words found
+# The original analyzer_page() is unchanged. Both pages share controls() and the stored runs.
+
+V2_STAGE_NAMES = {  # plain names for the timing stages
+    "pool_startup": "Starting the workers",
+    "partition": "Cutting the file into chunks",
+    "map_reduce": "Counting and combining (map + reduce)",
+    "pool_shutdown": "Stopping the workers",
+    "sort": "Sorting the results",
+}
+V2_LIGHT_STAGES = {"pool_startup", "pool_shutdown"}  # light bar colours need dark text
+
+V2_CSS = """
+<style>
+.v2-step { display:flex; align-items:center; gap:12px; margin:40px 0 14px; }
+.v2-step .n { width:28px; height:28px; flex:none; border:1px solid var(--brown); border-radius:50%;
+  display:inline-flex; align-items:center; justify-content:center;
+  font-family:'Playfair Display',serif; font-size:0.95rem; color:var(--brown); }
+.v2-step h2 { font-family:'Playfair Display',serif; font-weight:400; font-size:1.6rem; margin:0; padding:0; color:var(--ink); }
+.v2-step .sub { font-size:0.85rem; color:var(--muted); margin-left:6px; }
+.v2-headline { font-family:'Playfair Display',serif; font-weight:400; font-size:clamp(2rem, 3.6vw, 3.1rem);
+  line-height:1.12; color:var(--ink); margin:0; }
+.v2-times { display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:1.05rem; color:var(--muted); margin:12px 0 0; }
+.v2-times b { color:var(--ink); font-weight:600; }
+.v2-badge { display:inline-flex; align-items:center; gap:8px; padding:4px 12px 4px 5px; border-radius:999px;
+  background:#fff; font-size:0.8rem; color:var(--ink); }
+.v2-badge .dot { width:20px; height:20px; border-radius:50%; background:var(--ink); color:#fff;
+  display:inline-flex; align-items:center; justify-content:center; font-size:0.7rem; }
+.v2-badge.bad .dot { background:#a33; }
+.v2-why { max-width:780px; font-size:0.96rem; line-height:1.6; color:var(--ink); margin:18px 0 0; }
+.v2-quiet { display:flex; gap:24px; flex-wrap:wrap; font-size:0.86rem; color:var(--muted); margin:14px 0 0; }
+.v2-quiet b { color:var(--ink); font-weight:600; }
+.v2-quiet span { cursor:help; border-bottom:1px dotted var(--soft); }
+.v2-lead { font-size:0.95rem; line-height:1.55; color:var(--ink); margin:0 0 12px; max-width:780px; }
+.v2-bar { display:flex; height:36px; border-radius:10px; overflow:hidden; background:var(--sand); }
+.v2-bar div { display:flex; align-items:center; padding:0 12px; font-size:0.8rem; white-space:nowrap; overflow:hidden; }
+.v2-legend { display:flex; gap:8px 22px; flex-wrap:wrap; margin:12px 0 0; font-size:0.82rem; color:var(--muted); }
+.v2-legend b { color:var(--ink); font-weight:600; }
+.v2-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:7px; vertical-align:-1px; }
+.v2-words-sub { font-size:0.88rem; color:var(--muted); margin:-6px 0 12px; }
+.v2-hint { margin:14px 0 0; }
+.v2-anchor { height:0; margin:0; overflow:hidden; scroll-margin-top:24px; }
+.st-key-v2_bar { background:#fff; border-radius:16px; padding:10px 18px; }
+.v2-settings { font-size:0.9rem; color:var(--ink); }
+.v2-settings span { color:var(--muted); }
+</style>
+"""
+
+
+def v2_step(number: int, title: str, sub: str = "") -> str:
+    """Numbered section heading (the sections really are a sequence)."""
+    return (f"<div class='v2-step'><span class='n'>{number}</span><h2>{title}</h2>"
+            f"{f'<span class=sub>{sub}</span>' if sub else ''}</div>")
+
+
+def v2_result(res: dict, previous: dict | None) -> str:
+    """Section 1: the answer in one line, the times, the correctness badge and why it isn't ideal."""
+    p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
+    s = speedup(t_seq, t_par)
+    e = efficiency(s, p)
+    serial = serial_part(s, p)
+
+    if p == 1:
+        headline = "With 1 worker, the parallel version takes about as long as the sequential one"
+    elif s >= 1:
+        headline = f"{p} workers finished {s:.2f}× faster than 1 worker"
+    else:
+        headline = f"{p} workers were slower than 1 worker on this file"
+
+    if res["seq"] == res["par"]:
+        badge = (f"<span class='v2-badge' title='Parallel and sequential counts match exactly across "
+                 f"{len(res['seq']):,} different words ({res['seq'].total():,} in total).'>"
+                 f"<span class='dot'>✓</span>Counts match exactly</span>")
+    else:
+        badge = "<span class='v2-badge bad'><span class='dot'>✕</span>Counts differ</span>"
+
+    if p > 1 and s >= 1 and e <= 1:
+        other = res["timings"]["total"] - res["timings"]["map_reduce"]
+        split_steps = (f"Steps that can't be split (starting and stopping the workers, cutting the file, "
+                       f"combining and sorting the counts) took {other / t_par:.0%} of this run.")
+        # If the workers together needed clearly more time than 1 worker did alone, each worker ran
+        # slower; that, not the unsplittable steps, is then the main reason for the gap.
+        combined_busy = sum(entry["busy"] for entry in res["stats"]["per_worker"].values())
+        if combined_busy > 1.15 * t_seq:
+            why = (f"<b>Why not {p}× faster?</b> Mostly because each worker ran slower than one worker on "
+                   f"its own: together they spent {combined_busy:.1f} s counting, "
+                   f"{combined_busy / t_seq - 1:.0%} more than the {t_seq:.1f} s one worker needed. That usually "
+                   f"means other programs were using the CPU at the same time, or that some cores are slower "
+                   f"(many laptops mix fast and power-saving cores). {split_steps}")
+        else:
+            why = (f"<b>Why not {p}× faster?</b> {split_steps} The workers also don't all finish at exactly "
+                   f"the same moment.")
+    else:
+        why = meaning_text(res)
+
+    quiet = (f"<span title='Parallel efficiency E = S / p: how much of the ideal {p}× speedup was reached'>"
+             f"Efficiency <b>{e:.0%}</b></span>"
+             f"<span title='Estimated serial fraction (Karp-Flatt metric): the part of the work that still "
+             f"behaves as if it can&#39;t be split'>Serial part <b>"
+             f"{'n/a' if serial is None else f'{serial:.1%}'}</b></span>")
+    compare = compare_card(previous, res) if previous else (
+        "<div class='lc-cmp-hint v2-hint'>Tip: change the number of workers and run again to compare the two runs.</div>")
+
+    return (f"<div class='lc-run v2-anchor' data-run='{res.get('run_id', 0)}'></div>"
+            f"{v2_step(1, 'Result')}<div class='v2-headline'>{headline}</div>"
+            f"<div class='v2-times'><span><b>{t_seq:.2f} s</b> with 1 worker → <b>{t_par:.2f} s</b> "
+            f"with {plural(p, 'worker')}</span>{badge}</div>"
+            f"<div class='v2-why'>{why}</div><div class='v2-quiet'>{quiet}</div>{compare}")
+
+
+def v2_time(res: dict) -> str:
+    """Section 3: one labelled bar for where the parallel time went, with a plain legend."""
+    timings = res["timings"]
+    total = timings["total"] or 1.0
+    colours = {key: colour for key, _, colour in STAGES}
+    segments, legend = "", ""
+    for key, name in V2_STAGE_NAMES.items():
+        share = timings[key] / total
+        text_colour = "#1d1d1a" if key in V2_LIGHT_STAGES else "#fff"
+        label = f"{name} · {share:.0%}" if share >= 0.25 else ""
+        segments += (f"<div style='width:{100 * share:.2f}%;background:{colours[key]};color:{text_colour}' "
+                     f"title='{name}: {timings[key]:.4f} s ({share:.1%})'>{label}</div>")
+        legend += (f"<span><i style='background:{colours[key]}'></i>{name} "
+                   f"<b>{timings[key]:.3f} s</b> ({share:.1%})</span>")
+    counting = timings["map_reduce"] / total
+    lead = (f"<b>{counting:.0%}</b> of the {total:.2f} s parallel run was the counting itself, done by the "
+            f"workers at the same time. Everything else is the main process getting ready and finishing up.")
+    return (f"{v2_step(3, 'Where the time went')}<div class='v2-lead'>{lead}</div>"
+            f"<div class='v2-bar'>{segments}</div><div class='v2-legend'>{legend}</div>")
+
+
+def analyzer_v2_page() -> None:
+    """New guided layout. The settings fold into one line after a run."""
+    show(V2_CSS + """
+    <div class='lc-an-head'>
+      <div>
+        <div class='lc-h1'>Parallel word frequency</div>
+        <div class='lc-lead'>Pick a file and a number of workers, then run. The results read from top to bottom.</div>
+      </div>
+    </div>""")
+    with st.container(key="lc_an_hidden"):  # targets for the Offset / Send switch inside controls()
+        st.button("ipc_offset", key="lc_ipc_offset", on_click=lambda: st.session_state.__setitem__("ipc_mode", "offset"))
+        st.button("ipc_send", key="lc_ipc_send", on_click=lambda: st.session_state.__setitem__("ipc_mode", "send"))
+
+    res = st.session_state.get("results")
+    if res is None or st.session_state.get("v2_controls_open", True):
+        settings = controls()
+        if settings is None:
+            return
+        if settings["run"]:
+            store_run(settings)
+            st.session_state["v2_controls_open"] = False
+            st.rerun()
+        query = settings["query"]
+    else:
+        last = st.session_state.get("last_settings") or res
+        with st.container(key="v2_bar"):
+            info, again_col, change_col = st.columns([6, 1.3, 1.7], vertical_alignment="center")
+            with info:
+                show(f"<div class='v2-settings'>{html.escape(os.path.basename(last['path']))} "
+                     f"<span>·</span> {plural(last['workers'], 'worker')} <span>·</span> "
+                     f"{last['chunk_mb']:g} MB chunks <span>·</span> {last['mode'].capitalize()}</div>")
+            with again_col:
+                run_again = st.button("Run again", key="v2_run_again", use_container_width=True)
+            with change_col:
+                change = st.button("Change settings", key="v2_change", use_container_width=True)
+        if change:
+            st.session_state["v2_controls_open"] = True
+            st.rerun()
+        if run_again:
+            store_run(last)
+            st.rerun()
+        query = res.get("query", "")
+
+    res = st.session_state.get("results")
+    if not res:
+        show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
+             "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
+        return
+    res["query"] = query
+
+    show(v2_result(res, st.session_state.get("previous_results")))
+    show(v2_step(2, "How the work was shared", f"replayed in {REPLAY_SECONDS:g} s") + timeline_card(res, show_title=False))
+    show(v2_time(res))
+    show(v2_step(4, "Words found", "") +
+         f"<div class='v2-words-sub'>{len(res['par']):,} different words · {res['par'].total():,} words in total</div>"
+         + word_bars(res))
+    if st.session_state.pop("scroll_to_run", None) == res.get("run_id"):
+        scroll_to_results(res["run_id"])
 
 
 def home_page() -> None:
@@ -945,6 +1148,10 @@ def main() -> None:
     if active == "analyzer":
         st.markdown(CSS, unsafe_allow_html=True)
         analyzer_page()
+        footer()
+    elif active == "analyzer-v2":
+        st.markdown(CSS, unsafe_allow_html=True)
+        analyzer_v2_page()
         footer()
     else:
         render_landing_body(active)
