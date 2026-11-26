@@ -500,7 +500,10 @@ TIMELINE_CSS = """
   border-radius:12px; padding:12px 16px; margin:0 0 14px; }
 .lc-tl-summary b { font-weight:600; }
 .lc-tl-top { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
-.lc-tl-grid { display:grid; grid-template-columns:max-content minmax(220px,1fr) repeat(4,max-content);
+/* The card is a size container: the columns adapt to the card's own width (window size, zoom and
+   larger text all change it), so nothing is ever pushed past the card's right edge. */
+.lc-tl-card { container-type:inline-size; }
+.lc-tl-grid { display:grid; grid-template-columns:max-content minmax(160px,1fr) repeat(4,max-content);
   align-items:center; }
 .lc-tl-row { display:contents; }
 /* no column-gap: spacing is padding inside the cells, so each row's divider line is unbroken */
@@ -547,10 +550,20 @@ TIMELINE_CSS = """
 @keyframes lc-tl-grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
 @keyframes lc-tl-bob { from { transform:translateY(0); } to { transform:translateY(-2px); } }
 @media (prefers-reduced-motion: reduce) { .lc-tl-chunk, .lc-fig.work { animation:none; } }
-@media (max-width: 760px) {
+/* Narrower card: drop "Time working" and "Share of work" (also shown on hover / in the Total row). */
+@container (max-width: 860px) {
   .lc-tl-grid { grid-template-columns:max-content minmax(120px,1fr) max-content max-content; }
-  .lc-tl-row > div + div { padding-left:12px; }
+  .lc-tl-row > div + div { padding-left:14px; }
   .lc-tl-row > .lc-tl-wide { display:none; }
+}
+/* Very narrow card: smaller figures and text, pid hidden. */
+@container (max-width: 560px) {
+  .lc-tl-grid { grid-template-columns:max-content minmax(90px,1fr) max-content max-content; }
+  .lc-tl-row > div + div { padding-left:10px; }
+  .lc-fig { width:20px; height:35px; }
+  .lc-tl-who { font-size:0.74rem; gap:7px; }
+  .lc-tl-who small { display:none; }
+  .lc-tl-num { font-size:0.68rem; }
 }
 </style>
 """
@@ -658,7 +671,7 @@ def timeline_card(res: dict) -> str:
                f"of about <b>{chunk_mb:.1f} MB</b> each and shared by <b>{plural(stats['workers'], 'worker')}</b>. "
                f"Each worker took a chunk, counted its words, then took the next free chunk, until none were left.")
     compact = " lc-tl-compact" if stats["workers"] > COMPACT_ABOVE else ""
-    return (f"{TIMELINE_CSS}<div class='lc-card{compact}' style='margin-top:12px'>"
+    return (f"{TIMELINE_CSS}<div class='lc-card lc-tl-card{compact}' style='margin-top:12px'>"
             f"<div class='lc-tl-top'><span class='lc-h3'>How the work was shared</span>"
             f"<span class='lc-mini'>replayed in {REPLAY_SECONDS:g} s</span></div>"
             f"<div class='lc-tl-summary'>{summary}</div>"
