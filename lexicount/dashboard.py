@@ -349,14 +349,57 @@ def run_analysis(settings: dict) -> dict:
     # Ensure small files (e.g. 0.6 MB books) split cleanly across all workers.
     eff_chunk = effective_chunk_size(path, workers, settings["chunk_mb"])
 
-    with st.spinner("Running sequential baseline..."):
+    # A clear "Analyzing..." panel under the Run button, so a click visibly did something.
+    # It is replaced at each step and removed when the run ends (also if it fails).
+    progress = st.empty()
+    try:
+        progress.markdown(progress_panel(path, workers, step=1), unsafe_allow_html=True)
         seq_counts, seq_timings = sequential_count(path)
-
-    with st.spinner(f"Running parallel MapReduce with {workers} workers..."):
+        progress.markdown(progress_panel(path, workers, step=2, seq_seconds=seq_timings["total_time"]),
+                          unsafe_allow_html=True)
         total, par_timings, stats = parallel_count(path, workers, eff_chunk, mode)
+    finally:
+        progress.empty()
 
     return {"seq": seq_counts, "t_seq": seq_timings["total_time"], "par": total,
             "timings": par_timings, "stats": stats, **settings}
+
+
+PROGRESS_CSS = """
+<style>
+.lc-prog { background:#fff; border-radius:16px; padding:16px 20px; margin:14px 0 4px;
+  box-shadow:0 0 0 2px var(--ink) inset; }
+.lc-prog-top { display:flex; align-items:center; gap:12px; font-size:0.95rem; color:var(--ink); }
+.lc-prog-top b { font-weight:600; }
+.lc-prog-top span { color:var(--muted); font-size:0.82rem; }
+.lc-spin { width:18px; height:18px; flex:none; border-radius:50%; border:2.5px solid var(--sand);
+  border-top-color:var(--ink); animation:lc-spin 0.8s linear infinite; }
+.lc-prog-bar { position:relative; height:4px; border-radius:999px; background:var(--sand);
+  overflow:hidden; margin:12px 0 10px; }
+.lc-prog-bar i { position:absolute; top:0; bottom:0; width:35%; border-radius:999px; background:var(--ink);
+  animation:lc-slide 1.3s ease-in-out infinite; }
+.lc-prog-steps { display:flex; gap:22px; flex-wrap:wrap; font-size:0.82rem; color:var(--soft); }
+.lc-prog-steps .now { color:var(--ink); font-weight:600; }
+.lc-prog-steps .done { color:var(--muted); }
+@keyframes lc-spin { to { transform:rotate(360deg); } }
+@keyframes lc-slide { from { left:-35%; } to { left:100%; } }
+@media (prefers-reduced-motion: reduce) { .lc-spin, .lc-prog-bar i { animation:none; } }
+</style>
+"""
+
+
+def progress_panel(path: str, workers: int, step: int, seq_seconds: float | None = None) -> str:
+    """The "Analyzing..." panel shown while a run is in progress (step 1 = sequential, 2 = parallel)."""
+    size_mb = os.path.getsize(path) / MB
+    first = (f"<span class='done'>✓ 1. Counted with 1 worker ({seq_seconds:.2f} s)</span>" if step > 1
+             else "<span class='now'>● 1. Counting with 1 worker (sequential)</span>")
+    second = (f"<span class='now'>● 2. Counting with {plural(workers, 'worker')} (parallel)</span>" if step == 2
+              else f"<span>○ 2. Counting with {plural(workers, 'worker')} (parallel)</span>")
+    return (f"{PROGRESS_CSS}<div class='lc-prog' role='status' aria-live='polite'>"
+            f"<div class='lc-prog-top'><div class='lc-spin'></div><div><b>Analyzing "
+            f"{html.escape(os.path.basename(path))}</b> <span>({size_mb:.1f} MB) · this takes a few seconds"
+            f"</span></div></div><div class='lc-prog-bar'><i></i></div>"
+            f"<div class='lc-prog-steps'>{first}{second}</div></div>")
 
 
 def kpi(title: str, value: str, sub: str, formal: str, dark: bool = False) -> str:
