@@ -127,7 +127,9 @@ div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.8
 
 /* ---------- result blocks ---------- */
 .lc-run { font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--brown); margin:6px 0 14px 0; }
-.lc-kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+.lc-kpis { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+@media (max-width: 1050px) { .lc-kpis { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width: 650px) { .lc-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .lc-kpi { background:#fff; border-radius:18px; padding:18px 18px 16px 18px; }
 .lc-kpi.dark { background:var(--ink); }
 .lc-kpi .k { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.16em;
@@ -136,13 +138,13 @@ div[data-baseweb="select"] *, input { color:var(--ink) !important; font-size:0.8
 .lc-kpi .s { font-size:0.72rem; color:var(--muted); }
 .lc-kpi.dark .k, .lc-kpi.dark .s { color:#bdb5a9; } .lc-kpi.dark .v { color:#fff; }
 .lc-ok { background:#fff; border-radius:16px; padding:14px 18px; display:flex; gap:14px;
-  align-items:center; margin-top:14px; font-size:0.8rem; color:var(--ink); }
+  align-items:center; margin:0 0 18px; font-size:0.8rem; color:var(--ink); }
 .lc-ok .dot { width:28px; height:28px; border-radius:50%; background:var(--ink); color:#fff;
   display:flex; align-items:center; justify-content:center; font-size:0.8rem; flex:none; }
 .lc-ok.bad .dot { background:#9b2c2c; }
-.lc-note { background:#ece5dc; border-radius:16px; padding:16px 20px; margin-top:12px; }
+.lc-note { background:#ece5dc; border-radius:16px; padding:16px 20px; margin:0 0 20px; }
 .lc-note p { font-size:0.86rem; line-height:1.6; color:#2d2a26; margin-top:8px; max-width:none; }
-.lc-grid2 { display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-top:14px; align-items:stretch; }
+.lc-grid2 { display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-top:22px; align-items:stretch; }
 @media (max-width: 900px) { .lc-grid2 { grid-template-columns:1fr; } }
 .lc-card { background:#fff; border-radius:18px; padding:20px 22px; }
 .lc-cardhead { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:14px; }
@@ -263,13 +265,13 @@ def controls() -> dict | None:
     default = next((i for i, p in enumerate(datasets) if "100MB" in p), 0)
 
     with st.container(key="controls"):
-        c1, c2, c3, c4, c5 = st.columns([3.1, 1.6, 1.6, 1.5, 1.4], gap="medium")
+        c1, c2 = st.columns([3, 2], gap="medium")
         with c1:
             label("Source dataset")
             path = st.selectbox("dataset", datasets, index=default, format_func=dataset_label,
                                 label_visibility="collapsed")
         with c2:
-            label("Workers (p)")
+            label("Workers")
             workers = st.slider(
                 "workers",
                 min_value=1,
@@ -277,42 +279,31 @@ def controls() -> dict | None:
                 value=min(CPU_COUNT, 4),
                 label_visibility="collapsed",
             )
-        with c3:
-            label("Chunk size")
-            chunk_mb = st.select_slider(
-                "chunk",
-                options=[0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0],
-                value=4.0,
-                format_func=lambda x: f"{x:g} MB",
-                label_visibility="collapsed",
-            )
-        with c4:
-            label("IPC channel")
-            mode = st.session_state.setdefault("ipc_mode", "offset")
-            show(
-                f"<div class='lc-seg'>"
-                f"<a class='{'on' if mode == 'offset' else ''}' data-lc-trigger='lc_ipc_offset' href='#'>Offset</a>"
-                f"<a class='{'on' if mode == 'send' else ''}' data-lc-trigger='lc_ipc_send' href='#'>Send</a>"
-                f"</div>"
-            )
-        with c5:
-            label("Top N")
-            top = st.number_input("top", min_value=5, max_value=25, value=10, label_visibility="collapsed")
-
-        effective_mb = effective_chunk_size(path, int(workers), float(chunk_mb)) / MB
-        if effective_mb < float(chunk_mb):
-            st.warning(
-                f"For this dataset and {workers} workers, the selected {chunk_mb:g} MB "
-                f"chunk size will be reduced to about {effective_mb:.2f} MB per chunk."
-            )
-
-        f1, f2 = st.columns(2, gap="medium")
-        with f1:
-            label("Filter words")
-            query = st.text_input("filter", placeholder="e.g. algorithm, data, love — leave empty for all",
-                                  label_visibility="collapsed")
-        with f2:
-            label("Add custom dataset · .txt .pdf .docx")
+        label("Filter words")
+        query = st.text_input("filter", placeholder="e.g. algorithm, data, love — leave empty for top words",
+                              label_visibility="collapsed", key="result_word_filter")
+        with st.expander("More options"):
+            c3, c4, c5 = st.columns([2, 1.5, 1], gap="medium")
+            with c3:
+                label("Chunk size")
+                chunk_mb = st.select_slider(
+                    "chunk", options=[0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0],
+                    value=4.0, format_func=lambda x: f"{x:g} MB", label_visibility="collapsed")
+            with c4:
+                label("IPC channel")
+                mode = st.session_state.setdefault("ipc_mode", "offset")
+                show(f"<div class='lc-seg'>"
+                     f"<a class='{'on' if mode == 'offset' else ''}' data-lc-trigger='lc_ipc_offset' href='#'>Offset</a>"
+                     f"<a class='{'on' if mode == 'send' else ''}' data-lc-trigger='lc_ipc_send' href='#'>Send</a>"
+                     f"</div>")
+            with c5:
+                label("Top N")
+                top = st.number_input("top", min_value=5, max_value=25, value=10, label_visibility="collapsed")
+            effective_mb = effective_chunk_size(path, int(workers), float(chunk_mb)) / MB
+            if effective_mb < float(chunk_mb):
+                st.warning(f"Selected {chunk_mb:g} MB chunks will be reduced to about {effective_mb:.2f} MB "
+                           f"for this dataset and {workers} workers.")
+            label("Upload dataset")
             uploaded = st.file_uploader("upload", type=["txt", "pdf", "docx"], label_visibility="collapsed")
             if uploaded is not None:
                 save_upload(uploaded)
@@ -521,23 +512,24 @@ def serial_part_note(s: float, p: int) -> str:
 
 
 def kpi_row(res: dict) -> str:
-    """Five metric cards in plain words; speedup is the dark highlighted one."""
+    """Show all five metrics needed for the analysis and paper."""
     p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
     s = speedup(t_seq, t_par)
     serial = serial_part(s, p)
-    return "<div class='lc-kpis'>" + "".join([
+    cards = [
+        kpi("Speedup", f"{s:.2f}×", "faster than sequential" if s >= 1 else "slower than sequential",
+            "Speedup S = T_seq / T_par", dark=True),
         kpi("Sequential time", f"{t_seq:.3f} s", "1 worker, the normal way",
             "Sequential execution time (T_seq)"),
         kpi("Parallel time", f"{t_par:.3f} s", f"{p} workers, file split up",
             "Parallel execution time (T_par), including starting and stopping the workers"),
-        kpi("Speedup", f"{s:.2f}×", "faster than sequential" if s >= 1 else "slower than sequential",
-            "Speedup S = T_seq / T_par", dark=True),
         kpi("Efficiency", f"{efficiency(s, p):.0%}", f"of the ideal {p}× speedup",
             "Parallel efficiency E = S / p"),
         kpi("Serial part", "n/a" if serial is None else f"{serial:.1%}",
             serial_part_note(s, p) if serial is None else "of the work that can't be split",
             "Estimated serial fraction (Karp-Flatt metric e)"),
-    ]) + "</div>"
+    ]
+    return "<div class='lc-kpis'>" + "".join(cards) + "</div>"
 
 
 def correctness_block(res: dict) -> str:
@@ -969,9 +961,6 @@ def results_view(res: dict, previous: dict | None = None) -> None:
     formulas_button(res)
     if previous:
         show(compare_card(previous, res))
-    else:
-        show("<div class='lc-cmp-hint'>Tip: change the number of workers and run again "
-             "to compare the two runs side by side.</div>")
     show(f"<div class='lc-grid2'>{word_bars(res)}{time_card(res)}</div>")
     show(timeline_card(res))
 
@@ -1020,14 +1009,14 @@ def analyzer_page() -> None:
 
     res = st.session_state.get("results")
     if res:
-        res["query"] = settings["query"]  # filter can change without re-running
+        res["query"] = settings["query"]  # update the word chart without rerunning analysis
         results_view(res, st.session_state.get("previous_results"))
         # Only the rerun that follows "Run analysis" scrolls; slider or filter changes don't.
         if st.session_state.pop("scroll_to_run", None) == res.get("run_id"):
             scroll_to_results(res["run_id"])
     else:
         show("<div class='lc-note'><div class='lc-eyebrow'>Ready</div>"
-             "<p>Choose a dataset, workers and chunk size, then press <b>Run analysis</b>.</p></div>")
+             "<p>Choose a dataset and workers, then press <b>Run analysis</b>.</p></div>")
 
 
 def home_page() -> None:
