@@ -402,6 +402,99 @@ def progress_panel(path: str, workers: int, step: int, seq_seconds: float | None
             f"<div class='lc-prog-steps'>{first}{second}</div></div>")
 
 
+# ---------------------------------------------------------------- "How are these calculated?" popup
+
+FORMULAS_CSS = """
+<style>
+/* the button under the result cards */
+.st-key-lc_formulas_btn { margin:-6px 0 8px; }
+.st-key-lc_formulas_btn .stButton > button { background:transparent !important; color:var(--ink) !important;
+  border:1px solid #cfc6b9 !important; border-radius:999px !important; padding:4px 16px !important;
+  font-size:0.82rem !important; min-height:0 !important; }
+.st-key-lc_formulas_btn .stButton > button:hover { background:#fff !important; border-color:var(--ink) !important; }
+/* the popup frame */
+[data-testid="stDialog"] section[role="dialog"] { background:#fbf9f5 !important; border-radius:22px !important;
+  border:1px solid #e6dfd4 !important; box-shadow:0 24px 60px rgba(29,29,26,.18) !important; }
+[data-testid="stDialog"] h2, [data-testid="stDialog"] h2 p { font-family:'Playfair Display',serif !important;
+  font-weight:400 !important; font-size:1.7rem !important; color:#1d1d1a !important; }
+.lc-fx-intro { font-size:0.9rem; color:#6f6a62; margin:0 0 18px; }
+.lc-fx-row { display:grid; grid-template-columns:minmax(0,0.9fr) minmax(0,1.3fr); gap:24px;
+  padding:16px 0; border-top:1px solid #e6dfd4; }
+.lc-fx-row h4 { font-family:'Playfair Display',serif; font-weight:400; font-size:1.15rem; margin:0 0 4px;
+  padding:0; color:#1d1d1a; }
+.lc-fx-row p { font-size:0.84rem; line-height:1.5; color:#6f6a62; margin:0; }
+.lc-fx-math { font-family:'JetBrains Mono',monospace; font-size:0.8rem; line-height:1.9; color:#1d1d1a; }
+.lc-fx-math .rule { color:#6f6a62; }
+.lc-fx-math b { font-weight:700; background:#efe8dd; border-radius:6px; padding:1px 7px; }
+.lc-fx-note { font-size:0.76rem; color:#9a948a; border-top:1px solid #e6dfd4; padding-top:14px; margin-top:2px; }
+@media (max-width: 640px) { .lc-fx-row { grid-template-columns:1fr; gap:8px; } }
+</style>
+"""
+
+
+def formula_row(name: str, meaning: str, lines: list[str]) -> str:
+    """One metric in the popup: name and plain meaning on the left, the worked calculation on the right."""
+    math = "<br>".join(lines)
+    return (f"<div class='lc-fx-row'><div><h4>{name}</h4><p>{meaning}</p></div>"
+            f"<div class='lc-fx-math'>{math}</div></div>")
+
+
+def formulas_html(res: dict) -> str:
+    """Each metric worked out with this run's own numbers, in plain words."""
+    p, t_seq, t_par = res["workers"], res["t_seq"], res["timings"]["total"]
+    s = speedup(t_seq, t_par)
+    e = efficiency(s, p)
+    serial = serial_part(s, p)
+
+    rows = [
+        formula_row("Sequential time", "How long 1 worker takes to read, count and sort the whole file.",
+                    [f"measured: <b>{t_seq:.3f} s</b>"]),
+        formula_row("Parallel time", f"How long {plural(p, 'worker')} take, from starting the workers to the "
+                    f"sorted result.", [f"measured: <b>{t_par:.3f} s</b>"]),
+        formula_row("Speedup", "How many times faster the parallel run was.",
+                    ["<span class='rule'>sequential time ÷ parallel time</span>",
+                     f"= {t_seq:.3f} s ÷ {t_par:.3f} s", f"= {s:.3f} ≈ <b>{s:.2f}×</b>"]),
+        formula_row("Efficiency", f"How much of the ideal was reached. With {plural(p, 'worker')} the ideal "
+                    f"is {p}× faster.",
+                    ["<span class='rule'>speedup ÷ number of workers</span>",
+                     f"= {s:.3f} ÷ {p}", f"= {e:.3f} ≈ <b>{e:.0%}</b>"]),
+    ]
+    if serial is None:
+        rows.append(formula_row("Serial part", "The share of the work that still behaves as if it can't "
+                                "be split.", [f"<b>n/a</b> · {serial_part_note(s, p)}"]))
+    else:
+        rows.append(formula_row(
+            "Serial part", "The share of the work that still behaves as if it can't be split. "
+            "Worked out from the speedup you got.",
+            ["<span class='rule'>(1 ÷ speedup − 1 ÷ workers) ÷ (1 − 1 ÷ workers)</span>",
+             f"= (1 ÷ {s:.3f} − 1 ÷ {p}) ÷ (1 − 1 ÷ {p})",
+             f"= ({1 / s:.4f} − {1 / p:.4f}) ÷ {1 - 1 / p:.4f}",
+             f"= {serial:.4f} ≈ <b>{serial:.1%}</b>"]))
+        if serial > 0:
+            rows.append(formula_row(
+                "Speed limit", "Even with unlimited workers, the part that can't be split caps the speedup.",
+                ["<span class='rule'>1 ÷ serial part</span>",
+                 f"= 1 ÷ {serial:.4f}", f"≈ <b>{1 / serial:.0f}× faster at most</b>"]))
+
+    return (f"{FORMULAS_CSS}<div class='lc-fx-intro'>Worked out with the numbers from your last run: "
+            f"{html.escape(os.path.basename(res['path']))}, {plural(p, 'worker')}.</div>"
+            f"{''.join(rows)}"
+            f"<div class='lc-fx-note'>In the paper these are T_seq, T_par, speedup S = T_seq / T_par, "
+            f"efficiency E = S / p, the Karp-Flatt serial fraction e, and Amdahl's law (limit 1 / e).</div>")
+
+
+def formulas_button(res: dict) -> None:
+    """A small button under the result cards that opens the calculations popup."""
+    show(FORMULAS_CSS)
+    with st.container(key="lc_formulas_btn"):
+        if st.button("How are these calculated?", key="lc_formulas_open"):
+            # Defined here, not at module level: worker processes never import Streamlit.
+            @st.dialog("How the numbers are calculated", width="large")
+            def formulas_dialog() -> None:
+                show(formulas_html(res))
+            formulas_dialog()
+
+
 def kpi(title: str, value: str, sub: str, formal: str, dark: bool = False) -> str:
     """One metric card: plain-language label, with the formal term and formula on hover."""
     return (f"<div class='lc-kpi {'dark' if dark else ''}' title='{formal}'><div class='k'>{title}</div>"
@@ -873,6 +966,7 @@ def results_view(res: dict, previous: dict | None = None) -> None:
          f"{html.escape(os.path.basename(res['path']))} · p = {res['workers']}"
          f" · {actual_mb:.2f} MB chunks · {res['mode']} IPC</div>")
     show(kpi_row(res) + correctness_block(res) + meaning_block(res))
+    formulas_button(res)
     if previous:
         show(compare_card(previous, res))
     else:
