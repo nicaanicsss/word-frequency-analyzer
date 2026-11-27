@@ -1,0 +1,6 @@
+# Third-party packages for LexiCount (Python 3.10 or newer).
+# The analysis itself (main.py, parallel.py, sequential.py, ...) uses only the standard library.
+streamlit>=1.40        # web dashboard (dashboard.py)
+matplotlib>=3.8        # charts (visualize.py, dashboard)
+pypdf>=4.0             # optional: reading uploaded .pdf files in the dashboard
+python-docx>=1.1       # optional: reading uploaded .docx files in the dashboard
