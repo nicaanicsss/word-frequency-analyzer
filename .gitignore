@@ -1,6 +1,9 @@
 # Generated datasets (large files, do not push to Git)
 data/
 *.txt
+# ...but keep these text files in the repo
+!requirements.txt
+!README_FIRST.txt
 
 # Python cache & virtual environments
 __pycache__/
